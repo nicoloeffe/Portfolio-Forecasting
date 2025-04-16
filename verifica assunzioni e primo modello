@@ -1,0 +1,297 @@
+
+library(quantmod)
+library(ggplot2)
+library(e1071)
+library(lmtest)
+
+
+rm(list=ls())
+
+
+#import dei dati
+start_date <- "2010-01-01"
+end_date <- Sys.Date()
+
+
+# Lista dei simboli da scaricare
+titoli <- c("SPY", "AGG", "VNQ", "GLD")  # Aggiungi i titoli che ti interessano
+
+
+# Ciclo per scaricare i dati per ogni titolo
+for(titolo in titoli) {
+  getSymbols(titolo, src = "yahoo", from = start_date, to = end_date)
+}
+
+
+###########################
+### analisi esplorativa ###
+###########################
+
+
+x11()
+par(mfrow = c(2, 2))  
+
+plot(AGG$AGG.Adjusted,
+     main = "Andamento dell'AGG Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "steelblue")
+
+plot(GLD$GLD.Adjusted,
+     main = "Andamento del GLD Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "lightgreen")
+
+plot(SPY$SPY.Adjusted,
+     main = "Andamento del SPY Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "lightpink")
+
+plot(VNQ$VNQ.Adjusted,
+     main = "Andamento del VNQ Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "lightblue")
+
+
+
+
+x11()
+plot(VNQ$VNQ.Adjusted + SPY$SPY.Adjusted + GLD$GLD.Adjusted + AGG$AGG.Adjusted,
+     main = "Andamento del valore del portfolio Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "purple")
+
+## problema: così segue di fatto il titolo dal prezzo maggiore e si perde le altre variazioni --> creiamo un prtafoglio che pesi i titoli in modo tale da avere lo stesso valore di ogni titolo (in partenza almeno)
+
+
+
+graphics.off()
+
+
+
+# calcolo rendimenti logaritmici (giornalieri)
+r_agg <- periodReturn(AGG$AGG.Adjusted, period = 'daily', type = "arithmetic")
+r_gld <- dailyReturn(GLD$GLD.Adjusted, type = "log")
+r_spy <- dailyReturn(SPY$SPY.Adjusted, type = "log")
+r_vnq <- dailyReturn(VNQ$VNQ.Adjusted, type = "log")
+
+# esempio: istogramma dei rendimenti (giornalieri)
+x11()
+par(mfrow = c(1, 2))
+hist(r_spy, breaks = 100, col = "lightblue", 
+     main = "Distribuzione dei rendimenti logaritmici - SPY", xlab = "Rendimento")
+hist(r_agg, breaks = 100, col = "lightblue", 
+     main = "Distribuzione dei rendimenti aritmetici - AGG", xlab = "Rendimento")
+
+
+
+returns_df <- data.frame(
+  AGG = coredata(r_agg),
+  GLD = coredata(r_gld),
+  SPY = coredata(r_spy),
+  VNQ = coredata(r_vnq)
+)
+
+# Rimuove eventuali NA
+returns_df <- na.omit(returns_df)
+
+# Boxplot volatilità rendimenti
+x11()
+boxplot(returns_df, col = c("steelblue", "darkgreen", "darkred", "darkblue"),
+        main = "Confronto della Volatilità dei Rendimenti",
+        ylab = "Rendimento Log")
+
+
+
+
+graphics.off()
+
+
+
+
+
+
+
+
+
+
+
+####################################################
+### verifica assunzioni per la serie storica AGG: ##
+####################################################
+
+serie = AGG$AGG.Adjusted
+
+##############################################################
+## OSSERVAZIONI DISTRIBUITE MARGINALMENTE COME UNA NORMALE?###
+##############################################################
+
+# siamo sicuri serva questa assunzione? nelle slide sta scritto così ma per quanto fatto finora non mi sembra che la normalità sia necessaria
+
+shapiro.test(serie)  # H0: i dati sono distribuiti normalmente 
+## sono presenti giorni in cui il titolo assume lo sttesso valore: lo shapiro test non funziona
+
+
+x11()
+qqnorm(serie)  # creo Q-Q plot (confronto i quantili empirici dei dati con quelli teorici di una normale)
+qqline(serie) #  linea di riferimento: i punti dovrebbero seguirla se fossero distribuiti normalmente
+
+# sembrano essere approssimativamente normali nella parte centrale, ma potrebbero deviare dalla normalità nelle code. 
+# questo potrebbe significare che i dati hanno un comportamento più estremo in alcune situazioni (ad esempio, in periodi di volatilità elevata nei mercati finanziari)     
+# la normalità potrebbe quindi essere una assunzione forte ma stiamo trattandi ancora modelli molto semplici: ci accontentiamo della normalità
+# nella regione centrale.
+
+
+x11()
+hist(AGG$AGG.Adjusted, breaks = 50, probability = TRUE, col = "lightblue", main = "Histogram with Normal Curve")
+lines(density(AGG$AGG.Adjusted), col = "red")  # Aggiungi la curva della densità
+curve(dnorm(x, mean = mean(AGG$AGG.Adjusted), sd = sd(AGG$AGG.Adjusted)), col = "darkgreen", add = TRUE)  # Curva normale teorica
+
+## la distribuzione è chiaramente  multimodale, questo potrebbe essere dovuto a diversi regimi di mercato, ad esempio:
+# - fasi di crescita economica (periodi di maggiore ottimismo e crescita)
+# - periodi di recessione (periodi di alta volatilità e stress nei mercati)
+# La multimodalità indica che i dati potrebbero provenire da diverse popolazioni o regimi economici (come diverse fasi del mercato finanziario). 
+# Potremmo considerare la possibilità di suddividere i dati in periodi di espansione e contrazione economica, e testare la normalità separatamente per ciascun periodo.
+# Si puo vedere anche dal grafico della serie storica: ci sono periodi di scarsa volatilità in cui il valore del titolo si assesta attorno a un numero preciso.
+
+skewness(AGG$AGG.Adjusted) # = -0.0027 --> la distribuzione dei dati è abbastanza simmetrica attorno alla sua media 
+kurtosis(AGG$AGG.Adjusted) # = -0.6973 < 0 --> la distribuzione ha una coda più leggera rispetto alla distribuzione normale.
+                           # le code dei dati non sono particolarmente pesanti, ma potrebbero comunque esserci andamenti 
+                           # anomali o periodi di volatilità elevata che non sono ben rappresentati da una distribuzione normale.
+
+
+
+##################################################
+## autocorrelazione e autocorellazione parziale ##
+##################################################
+
+x11()
+acf(serie, main = "Correlogramma valore AGG", lag.max = 100)
+# ogni osservazione dipende fortemente dalle precedenti, i dati sembrano seguire una forte relazione temporale,
+# un modello di serie temporale potrebbe effettivamente essere utile per modellare i dati
+
+x11()
+pacf(serie, main = "Correlogramma parziale valore AGG", lag.max = 100)
+# c'è una forte autocorrelazione tra il valore corrente e il valore precedente ma dopo il lag 1, le correlazioni diventano molto più piccole:
+# la mancanza di significatività a lag più alti suggerisce che i dati non dipendono da lag più lontani.
+
+
+
+
+
+#########################################
+## PRIMO MODELLO: Random Walk traslata ##
+#########################################
+
+# creo una regressione AR(1) con offset (random walk traslato):
+
+valore_precedente = serie[1:length(serie)-1] # escludo l'ultimo valore (non è il valore precedente di nessun altro)
+
+primo_modello <- lm(serie[-1] ~ valore_precedente)
+# escludo il primo valore (non ha valori precedenti che possiamo usare per stimarlo)
+
+
+# Visualizza i parametri stimati
+summary(primo_modello)
+# Rquadro elevato, il modello sembrerebbe spiegare bene la variabilità dei dati
+# coeff significativo e vicino a 1 --> in linea con quanto ci saremmo aspettati
+# intercetta significativa ma bassa, sembra indicare una leggera tendenza positiva ( in assenza di altri fattori, il valore del titolo ha una piccola crescita costante nel tempo)
+
+# a occhio i residui non sembrano problematici ma facciamo una diagnostica più precisa:
+
+# Calcoliamo i residui e grafichiamoli
+residui = primo_modello$residuals
+
+x11()
+plot(residui, 
+     main = "Residui", 
+     ylab = "Residui")
+abline(h = 0, col = 2, lwd = 4) # non capisco perché non si veda 
+# sembrerebbero grosso modo simmetrici intorno allo 0
+# i valori estremi di errore sono associati a un crollo improvviso del valore del titolo, non si poteva prevedere
+# non propriamente stazionari (a occhio, poi approfondiamo), ce lo aspettavamo (la volatilità del mercato è variabile)
+
+# Grafico Q-Q per verificare la normalità dei residui:
+x11()
+qqnorm(residui)
+qqline(residui, col = "red")
+# deviazioni dalle code normali suggeriscono la presenza di eventi estremi, che il modello non può catturare completamente (giornate matte del mercato)
+
+# non è un problema se il modello non è perfetto nella previsione di eventi estremi, l'importante è che offra un buon adattamento complessivo, 
+# considerando che nel contesto finanziario gli eventi estremi sono intrinsecamente difficili da prevedere. L'importante è che il modello 
+# riesca a catturare la tendenza generale e a gestire le fluttuazioni normali del mercato
+
+# Calcoliamo e plottiamo l'autocorrelazione dei residui
+x11()
+acf(residui, main = "Autocorrelazione dei Residui") 
+# residui scorrelati, bene
+
+# Test di Breusch-Pagan per eteroscedasticità:
+bptest(primo_modello)  # P-value bassissimo --> rifiuto H0, residui eteroschedastici
+                       # è quello che dicevamo prima, la volatilità del mercato è variabile, questo
+                       # si ripercuote sul modulo degli errori.
+
+
+
+
+# confrontiamo valori fittati e valori reali
+fitted_values = fitted(primo_modello)
+
+x11()
+plot(serie, col = 1)
+lines(fitted_values, col = 2)
+# confermo il modello sembra riuscire a spiegare bene i dati usando come unico predittore il valore del giorno precedente
+
+
+
+# PREVISIONE del giorno successivo (puntuale)
+
+beta0 = primo_modello$coefficients[1]
+beta1 = primo_modello$coefficients[2]
+
+previsione_puntuale = beta0 + beta1*serie[1] 
+
+# Calcolo dell'errore standard della previsione (è una stima della varianza dei residui)
+errore_standard = sqrt(sum(residui^2) / length(residui))
+
+# Determinazione del valore critico per un intervallo di confidenza del 95% (siamo sotto l'assunzione (forte) valutata prima di normalità dei dati)
+t_critico = qnorm(0.95)  
+
+# Calcoliamo l'intervallo di previsione al 95%
+limite_superiore = previsione_puntuale + t_critico * errore_standard
+limite_inferiore = previsione_puntuale - t_critico * errore_standard
+
+# Visualizza il risultato
+cat("Previsione puntuale: ", previsione_puntuale, "\n")
+cat("Intervallo di previsione al 90%: [", limite_inferiore, ", ", limite_superiore, "]\n")
+
+## DOVREI/POTREI CONSIDERARE ANCHE L'INCERTEZZA NELLA STIMA DEI PARAMETRI? (GPT DICEVA DI AGGIUNGERE UN TERMINE LEGATO ALL'ERRORE STANDARD NELLA STIMA DEI PARAMETRI DEL MODELLO)
+
+# vediamo se veramente il valore vero sta nell'intervallo di previsione il 95% delle volte:
+previsione_puntuale = beta0 + beta1*serie
+
+ampiezza_int = t_critico * errore_standard
+
+valori_fuori_intervallo = 0
+
+for(i in 2:length(serie))
+{
+  if(serie[i] > previsione_puntuale[i] + ampiezza_int | serie[i] < previsione_puntuale[i] - ampiezza_int)
+    valori_fuori_intervallo = valori_fuori_intervallo + 1
+}
+
+percentuale_valori_fuori_int = valori_fuori_intervallo/length(serie)
+
+### mmmmh fin troppo bassa, forse gli intervalli sono troppo larghi (modello inutile per il businessman)
+
+
+
+
+
+
+
+
