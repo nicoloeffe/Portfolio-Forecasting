@@ -347,11 +347,60 @@ pacf(serie_incrementi[,2], main = "Correlogramma parziale INCREMENTI AGG", lag.m
 ## VALUTAZIONE DEL MODELLO - possibilità ##
 ###########################################
 
-## diversi modi per valutare la bontà del modello, mi interessa introdurne alcuni e definire qua delle funzioni
-## che mi permettano di valutare poi ciascun modello con estrema semplicità
+## diversi modi per dividere i dati in train e test set, mi interessa definire qua delle funzioni che possano essere
+## usate per dividere il dataset in varie finestre (ciascuna con dati di train e dati di test)
 
-# possibili idee per valutare il modello:
-# - 
+# possibili idee per individuare le finestre (avendo scelto su quanti giorni allenare il modello e su quanti fare previsione):
+# - finestre attigue (disgiunte) dalla lunghezza costante
+# - finestre scorrevoli (da decidere di quanto traslare la finestra ogni volta) (non più disgiunte ma parzialmente sovrapposte)
+# - N finestre prese in modo randomico sull'orizzonte temporale (alcune totalmente disgiunte, altre parzialmente sovrapposte, tutto casuale)
+
+
+
+# funzione per creare finestre disgiunte:
+
+non_overlapping_windows = function(dataset_completo, train_size, test_size) 
+{
+  windows = list()
+  
+  for (start in seq(1, nrow(dataset_completo) - (train_size + test_size), by = train_size + test_size)) 
+  {
+    end_train = start + train_size - 1
+    start_test = end_train + 1
+    end_test = start_test + test_size - 1
+    
+    windows[[length(windows) + 1]] = list(
+      train = dataset_completo[start:end_train,2],
+      test = dataset_completo[start_test:end_test,2]
+    )
+  }
+  
+  return(windows)
+}
+
+
+
+# funzione per creare finestre scorrevoli:
+
+sliding_windows = function(dataset_completo, train_size, test_size, step_size) 
+  {
+    windows = list()
+  
+    for (start in seq(1, nrow(dataset_completo) - (train_size + test_size), by = step_size)) 
+      {
+        end_train = start + train_size - 1
+        start_test = end_train + 1
+        end_test = start_test + test_size - 1
+        
+        windows[[length(windows) + 1]] = list(
+          train = dataset_completo[start:end_train,2],
+          test = dataset_completo[start_test:end_test,2]
+        )
+      }
+    
+  return(windows)
+}
+
 
 
 
@@ -520,15 +569,6 @@ legend("topright", legend = c("Frequenza Empirica", "Frequenza stimata", "Interv
 
 
 graphics.off()
-
-
-
-
-
-
-
-
-
 
 
 
