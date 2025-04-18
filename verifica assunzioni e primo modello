@@ -3,6 +3,8 @@ library(quantmod)
 library(ggplot2)
 library(e1071)
 library(lmtest)
+library(forecast)
+library(tseries)
 
 
 rm(list=ls())
@@ -21,6 +23,8 @@ titoli <- c("SPY", "AGG", "VNQ", "GLD")  # Aggiungi i titoli che ti interessano
 for(titolo in titoli) {
   getSymbols(titolo, src = "yahoo", from = start_date, to = end_date)
 }
+
+
 
 
 ###########################
@@ -56,6 +60,9 @@ plot(VNQ$VNQ.Adjusted,
      col = "lightblue")
 
 
+## non sembra assolutamente essere una serie stazionaria c'è un trend e in generale l'andamento sembra 'modellabile a tratti', potrebbe aver senso dividere i diversi periodi
+## e creare diversi modelli per ciascun momento (periodi di fiducia, periodi di recessione, di fatto figli di diverse popolazioni (mistura)). anche la volatilità sembra essere variabile.
+
 
 
 x11()
@@ -67,119 +74,284 @@ plot(VNQ$VNQ.Adjusted + SPY$SPY.Adjusted + GLD$GLD.Adjusted + AGG$AGG.Adjusted,
 
 ## problema: così segue di fatto il titolo dal prezzo maggiore e si perde le altre variazioni --> creiamo un prtafoglio che pesi i titoli in modo tale da avere lo stesso valore di ogni titolo (in partenza almeno)
 
-
-
 graphics.off()
 
 
+## troviamo coefficienti che distribuiscano equamente il valore del portafoglio su ciascun titolo (assumiamo che il portafoglio valga 400)
 
-# calcolo rendimenti logaritmici (giornalieri)
-r_agg <- periodReturn(AGG$AGG.Adjusted, period = 'daily', type = "arithmetic")
-r_gld <- dailyReturn(GLD$GLD.Adjusted, type = "log")
-r_spy <- dailyReturn(SPY$SPY.Adjusted, type = "log")
-r_vnq <- dailyReturn(VNQ$VNQ.Adjusted, type = "log")
+coeff_AGG = 100/as.numeric(AGG$AGG.Adjusted[1])
+coeff_SPY = 100/as.numeric(SPY$SPY.Adjusted[1])
+coeff_GLD = 100/as.numeric(GLD$GLD.Adjusted[1])
+coeff_VNQ = 100/as.numeric(VNQ$VNQ.Adjusted[1])
 
-# esempio: istogramma dei rendimenti (giornalieri)
 x11()
-par(mfrow = c(1, 2))
-hist(r_spy, breaks = 100, col = "lightblue", 
-     main = "Distribuzione dei rendimenti logaritmici - SPY", xlab = "Rendimento")
-hist(r_agg, breaks = 100, col = "lightblue", 
-     main = "Distribuzione dei rendimenti aritmetici - AGG", xlab = "Rendimento")
+plot(coeff_VNQ*VNQ$VNQ.Adjusted + coeff_SPY*SPY$SPY.Adjusted + coeff_GLD*GLD$GLD.Adjusted + coeff_AGG*AGG$AGG.Adjusted,
+     main = "Andamento del valore del portfolio Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "purple")
+
+## in questo modo il portafoglio è inizialmente equamente diviso in valore tra ciascun titolo (segue poi l'andamento di SPY perché questo titolo cresce in valore più di tutti gli altri)
 
 
+## plotto istogrammi dei valori assunti da ciascun titolo
 
-returns_df <- data.frame(
-  AGG = coredata(r_agg),
-  GLD = coredata(r_gld),
-  SPY = coredata(r_spy),
-  VNQ = coredata(r_vnq)
-)
-
-# Rimuove eventuali NA
-returns_df <- na.omit(returns_df)
-
-# Boxplot volatilità rendimenti
 x11()
-boxplot(returns_df, col = c("steelblue", "darkgreen", "darkred", "darkblue"),
-        main = "Confronto della Volatilità dei Rendimenti",
-        ylab = "Rendimento Log")
+par(mfrow = c(2, 2))  
 
+hist(AGG$AGG.Adjusted, breaks = 100, col = "steelblue", 
+     main = "Distribuzione dei valori giornalieri AGG ", xlab = "Valore titolo")
+
+hist(SPY$SPY.Adjusted, breaks = 100, col = "lightpink", 
+     main = "Distribuzione dei rendimenti giornalieri SPY", xlab = "Rendimento")
+
+hist(GLD$GLD.Adjusted, breaks = 100, col = "lightgreen", 
+     main = "Distribuzione dei rendimenti giornalieri GLD", xlab = "Rendimento")
+
+hist(VNQ$VNQ.Adjusted, breaks = 100, col = "lightblue", 
+     main = "Distribuzione dei rendimenti giornalieri VNQ", xlab = "Rendimento")
+
+## le distribuzione sono chiaramente multimodali, questo potrebbe essere dovuto a diversi regimi di mercato, ad esempio:
+# - fasi di crescita economica (periodi di maggiore ottimismo e crescita)
+# - periodi di recessione (periodi di alta volatilità e stress nei mercati)
+# - periodi di stabilità del valore del titolo
+# La multimodalità indica che i dati potrebbero provenire da diverse popolazioni o regimi economici (come diverse fasi del mercato finanziario). 
+# Potremmo considerare la possibilità di suddividere i dati in periodi di espansione e contrazione economica. 
+# Si puo vedere anche dal grafico della serie storica: ci sono periodi di scarsa volatilità in cui il valore del titolo si assesta attorno a un numero preciso.
+
+
+
+## stessa cosa per il valore aggregato del portafoglio:
+
+x11()
+hist(coeff_VNQ*VNQ$VNQ.Adjusted + coeff_SPY*SPY$SPY.Adjusted + coeff_GLD*GLD$GLD.Adjusted + coeff_AGG*AGG$AGG.Adjusted, breaks = 100, col = "purple", 
+     main = "Distribuzione dei rendimenti giornalieri portfoglio", xlab = "Rendimento")
 
 
 
 graphics.off()
-
-
-
-
-
-
-
-
-
 
 
 ####################################################
 ### verifica assunzioni per la serie storica AGG: ##
 ####################################################
 
-serie = AGG$AGG.Adjusted
+## per comodità racchiudo nell'oggetto 'serie' i dati che considero (in questo modo il codice rimane uguale, senza bisogno di andare a 
+## sostituire con il nome di un altro titolo in varie parti del codice, sarà sufficiente riassegnare la variabile 'serie')
+
+serie = as.data.frame(AGG)
+
+serie$Data = index(AGG)
+
+# Creiamo una matrice con solo la data e il valore Adjusted
+serie = serie[, c("Data", "AGG.Adjusted")]
+
+head(serie)
+
+
+
+
+## spesso conviene studiare gli incrementi e non direttamente il valore del titolo (vediamo sotto perché)
+incrementi = rep(NA, nrow(serie)-1)
+
+for(i in 2:nrow(serie)) {
+  incrementi[i-1] = serie[i,2]-serie[i-1,2]
+}
+
+serie_incrementi = serie[-1,]
+
+serie_incrementi$AGG.Adjusted = incrementi
+
+head(serie_incrementi)
+
+
+## facciamo un paio di plot:
+
+x11()
+par(mfrow = c(2, 2))  
+
+plot(serie,
+     type = "l",
+     main = "Andamento dell'AGG Adjusted PRICE",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "steelblue")
+
+plot(serie_incrementi,
+     type = "l",
+     main = "Andamento degli INCREMENTI dell'AGG Adjusted Price",
+     xlab = "Data",
+     ylab = "Prezzo Adjusted",
+     col = "darkgrey")
+
+hist(serie$AGG.Adjusted, breaks = 100, col = "steelblue", 
+     main = "Distribuzione dei valori giornalieri AGG ", xlab = "Valore titolo")
+
+hist(serie_incrementi$AGG.Adjusted, breaks = 100, col = "darkgrey", 
+     main = "Distribuzione dei rendimenti giornalieri AGG", xlab = "Rendimento")
+
+## già si vede ad occhio che gli incrementi rispettano meglio le ipotesi di stazionarietà debole (e di distribuzione normale)
+## di fatto sembra che la varianza non sia veramente costante nel tempo ma in ogni caso per i rendimenti l'ipotesi di stazionarietà
+## è molto meno forte che per i valori dei titoli.
+
+graphics.off()
+
+
+###########################
+## STAZIONARIETA DEBOLE? ##
+###########################
+
+## valutiamo quantitativamente le considerazioni qualitative appena fatte:
+
+adf.test(serie[,2])
+
+# dati NON stazionari (interpretazione e motivazione)
+
+# guardiamo come sono fatti trend e stagionalità (ad occhio la presenza di un trend sembra innegabile):
+
+serie_ts = ts(serie$AGG.Adjusted, frequency = 365)
+# converto i dati in una serie temporale (TS)
+
+decomposizione = decompose(serie_ts)
+
+x11()
+plot(decomposizione)  # mi sembra fin troppo maracta un stagionalità così, PUZZA!!
+
+
+# la serie ha sia un trend evidente che una stagionalità, il che potrebbe indicare che un modello che cattura questi due effetti (come ARIMA con stagionalità, SARIMA, o un modello che combina trend e stagionalità) potrebbe funzionare bene.
+
+# un modo per de-trendizzare la serie è sicuramente quello di passare ai rendimenti
+
+
+# se passo ai rendimenti ho stazionarietà debole:
+
+adf.test(serie_incrementi[,2])
 
 ##############################################################
 ## OSSERVAZIONI DISTRIBUITE MARGINALMENTE COME UNA NORMALE?###
 ##############################################################
 
-# siamo sicuri serva questa assunzione? nelle slide sta scritto così ma per quanto fatto finora non mi sembra che la normalità sia necessaria
+# ?? siamo sicuri serva questa assunzione? nelle slide sta scritto così ma per quanto fatto fino ad ora non mi sembra che la normalità sia necessaria
+# forse NON è NECESSARIA questa parte (peccato)
 
-shapiro.test(serie)  # H0: i dati sono distribuiti normalmente 
-## sono presenti giorni in cui il titolo assume lo sttesso valore: lo shapiro test non funziona
+## analisi VALORI TITOLO
 
+shapiro.test(serie[,2])  # H0: i dati sono distribuiti normalmente 
+                         # pvalue basso rifiuto l'ipotesi nulla --> i dati NON sono distribuiti normalmente
 
 x11()
-qqnorm(serie)  # creo Q-Q plot (confronto i quantili empirici dei dati con quelli teorici di una normale)
-qqline(serie) #  linea di riferimento: i punti dovrebbero seguirla se fossero distribuiti normalmente
+qqnorm(serie[,2])  # creo Q-Q plot (confronto i quantili empirici dei dati con quelli teorici di una normale)
+qqline(serie[,2]) #  linea di riferimento: i punti dovrebbero seguirla se fossero distribuiti normalmente
 
-# sembrano essere approssimativamente normali nella parte centrale, ma potrebbero deviare dalla normalità nelle code. 
+# sembrano essere approssimativamente normali nella parte centrale, ma deviano dalla normalità nelle code. 
 # questo potrebbe significare che i dati hanno un comportamento più estremo in alcune situazioni (ad esempio, in periodi di volatilità elevata nei mercati finanziari)     
-# la normalità potrebbe quindi essere una assunzione forte ma stiamo trattandi ancora modelli molto semplici: ci accontentiamo della normalità
-# nella regione centrale.
-
 
 x11()
-hist(AGG$AGG.Adjusted, breaks = 50, probability = TRUE, col = "lightblue", main = "Histogram with Normal Curve")
-lines(density(AGG$AGG.Adjusted), col = "red")  # Aggiungi la curva della densità
-curve(dnorm(x, mean = mean(AGG$AGG.Adjusted), sd = sd(AGG$AGG.Adjusted)), col = "darkgreen", add = TRUE)  # Curva normale teorica
+hist(serie[,2], breaks = 50, probability = TRUE, col = "lightblue", main = "Histogram with Normal Curve")
+lines(density(serie[,2]), col = "red")  # Aggiungi la curva della densità
+curve(dnorm(x, mean = mean(serie[,2]), sd = sd(serie[,2])), col = "darkgreen", add = TRUE)  # Curva normale teorica
 
 ## la distribuzione è chiaramente  multimodale, questo potrebbe essere dovuto a diversi regimi di mercato, ad esempio:
 # - fasi di crescita economica (periodi di maggiore ottimismo e crescita)
 # - periodi di recessione (periodi di alta volatilità e stress nei mercati)
+# - periodi di stabilità del valore del titolo
 # La multimodalità indica che i dati potrebbero provenire da diverse popolazioni o regimi economici (come diverse fasi del mercato finanziario). 
 # Potremmo considerare la possibilità di suddividere i dati in periodi di espansione e contrazione economica, e testare la normalità separatamente per ciascun periodo.
 # Si puo vedere anche dal grafico della serie storica: ci sono periodi di scarsa volatilità in cui il valore del titolo si assesta attorno a un numero preciso.
 
-skewness(AGG$AGG.Adjusted) # = -0.0027 --> la distribuzione dei dati è abbastanza simmetrica attorno alla sua media 
-kurtosis(AGG$AGG.Adjusted) # = -0.6973 < 0 --> la distribuzione ha una coda più leggera rispetto alla distribuzione normale.
+skewness(serie[,2]) # = -0.0027 --> la distribuzione dei dati è abbastanza simmetrica attorno alla sua media 
+kurtosis(serie[,2]) # = -0.6973 < 0 --> la distribuzione ha una coda più leggera rispetto alla distribuzione normale.
                            # le code dei dati non sono particolarmente pesanti, ma potrebbero comunque esserci andamenti 
                            # anomali o periodi di volatilità elevata che non sono ben rappresentati da una distribuzione normale.
 
 
+# dopo queste analisi concludiamo che la normalità dei dati è probabilmente un'assunzione forte
+
+
+
+
+## analisi RENDIMENTI
+
+shapiro.test(serie_incrementi[,2])  # H0: i dati sono distribuiti normalmente 
+# pvalue basso rifiuto l'ipotesi nulla --> i dati NON sono distribuiti normalmente
+
+x11()
+qqnorm(serie_incrementi[,2])  # creo Q-Q plot (confronto i quantili empirici dei dati con quelli teorici di una normale)
+qqline(serie_incrementi[,2]) #  linea di riferimento: i punti dovrebbero seguirla se fossero distribuiti normalmente
+
+# sembrano essere approssimativamente normali nella parte centrale, ma deviano dalla normalità nelle code. 
+# questo potrebbe significare che i dati hanno un comportamento più estremo in alcune situazioni (ad esempio, in periodi di volatilità elevata nei mercati finanziari)     
+
+x11()
+hist(serie_incrementi[,2], breaks = 50, probability = TRUE, col = "lightblue", main = "Histogram with Normal Curve")
+lines(density(serie_incrementi[,2]), col = "red")  # Aggiungi la curva della densità
+curve(dnorm(x, mean = mean(serie_incrementi[,2]), sd = sd(serie_incrementi[,2])), col = "darkgreen", add = TRUE)  # Curva normale teorica
+
+## dai test precedenti risulta che l'assunzione di normalità sia ancora un'assunzione forte ma sembrano "più normali" dei valori
+## giornalieri del titolo, i rendimenti (pur non essendo normali) ci si avvicinano di più.
+
+skewness(serie_incrementi[,2]) # = -1.386 --> asimmetri negativa (distribuzione spostata verso sinistra), questo è tipico dei mercati finanziari: spesso i prezzi titolo subiscono cali più significativi rispetto ai rialzi.
+kurtosis(serie_incrementi[,2]) # = 27.06 < 0 --> code molto più pesanti rispetto a una distribuzione normale. Ciò suggerisce la presenza di eventi rari (come i forti picchi o cali nei prezzi), che sono tipici nei mercati finanziari.
+
+
+## l'assunzione di normalità sembra essere forte anche in questo caso, la distribuzione dei rendimenti non può essere approssimata con una normale
+## perché la distribuzione dei dati segue una distribuzione che consente eventi estremi più frequentemente di quanto prevederebbe una normale.
+## nel nostro studio non siamo però interessati a prevedere gli eventi estremi ma solamente a fare previsioni su intervalli di tempi vicini: vogliamo fare mediamente delle buone previsioni, non importa sbagliare di grosso occasionalmente (statistici non trader)
+
+## in conclusione è meglio utilizzare i dati relativi ai rendimenti per i modelli, non quelli dei valori del titolo
 
 ##################################################
 ## autocorrelazione e autocorellazione parziale ##
 ##################################################
 
+
+## plottiamo autocorrelazione e autocorrelazione parziale dei valori giornalieri del titolo:
+
 x11()
-acf(serie, main = "Correlogramma valore AGG", lag.max = 100)
+par(mfrow = c(1, 2)) 
+
+acf(serie[,2], main = "Correlogramma VALORE AGG", lag.max = 100)
 # ogni osservazione dipende fortemente dalle precedenti, i dati sembrano seguire una forte relazione temporale,
 # un modello di serie temporale potrebbe effettivamente essere utile per modellare i dati
 
-x11()
-pacf(serie, main = "Correlogramma parziale valore AGG", lag.max = 100)
+pacf(serie[,2], main = "Correlogramma parziale VALORE AGG", lag.max = 100)
 # c'è una forte autocorrelazione tra il valore corrente e il valore precedente ma dopo il lag 1, le correlazioni diventano molto più piccole:
 # la mancanza di significatività a lag più alti suggerisce che i dati non dipendono da lag più lontani.
 
 
+
+## plottiamo ora autocorrelazione e autocorrelazione parziale dei rendimenti giornalieri:
+
+x11()
+par(mfrow = c(1, 2)) 
+
+acf(serie_incrementi[,2], main = "Correlogramma INCREMENTI AGG", lag.max = 100)
+# la correlazione non è significativa per lag maggiori di 0: usare l'incremento di oggi per spiegare quello di domani potrebbe NON essere una buona idea
+
+pacf(serie_incrementi[,2], main = "Correlogramma parziale INCREMENTI AGG", lag.max = 100)
+
+
+
+## penso che la forte correlazione temporale tra i valori giornalieri del titolo sia solo apparenza (poca sostanza). 
+## mi spiego meglio: forse se i rendimenti non sono correlati significa che fare previsione per domani è difficile, 
+## la correlazione tra il valore del titolo oggi e domani dice solo che se oggi vale 100 domani varrà ancora più o meno così 
+## (quindi l'unica cosa che mi dice è che mediamente il rendimento giornaliero è piccolo, non sa però stimare il rendimento di domani guardando i rendimenti passati) 
+
+
+# riassumendo quanto visto fino ad ora:
+# - i dati relativi al valore giornaliero del titolo non rispettano l'assunzione di stazionarietà mentre quelli dei rendimenti (quasi) si 
+# - i valori giornalieri sono temporalmente correlati tra loro (tutta apparenza), i rendimenti non presentano correlazioni temporali significative (purtroppo) (soldi facili per tutti altrimenti)
+
+
+###########################################
+## VALUTAZIONE DEL MODELLO - possibilità ##
+###########################################
+
+## diversi modi per valutare la bontà del modello, mi interessa introdurne alcuni e definire qua delle funzioni
+## che mi permettano di valutare poi ciascun modello con estrema semplicità
+
+# possibili idee per valutare il modello:
+# - 
 
 
 
@@ -187,18 +359,21 @@ pacf(serie, main = "Correlogramma parziale valore AGG", lag.max = 100)
 ## PRIMO MODELLO: Random Walk traslata ##
 #########################################
 
+## N.B: abbiamo visto prima che la serie dei valori giornalieri non è stazionaria, sarebbe una scelta più felice quella di usare i rendimenti (esattamente ciò che faremo poi)
+## voglio però prima mostrare come la forte correlazione tra i valori giornalieri del titolo di fatto non sia così utile (dice solo che i rendimenti sono piccoli in media)
+
 # creo una regressione AR(1) con offset (random walk traslato):
 
-valore_precedente = serie[1:length(serie)-1] # escludo l'ultimo valore (non è il valore precedente di nessun altro)
+valore_precedente = serie[1:nrow(serie)-1,2] # escludo l'ultimo valore (non è il valore precedente di nessun altro)
 
-primo_modello <- lm(serie[-1] ~ valore_precedente)
+primo_modello = lm(serie[-1,2] ~ valore_precedente)
 # escludo il primo valore (non ha valori precedenti che possiamo usare per stimarlo)
 
 
-# Visualizza i parametri stimati
+# visualizziamo i parametri stimati:
 summary(primo_modello)
 # Rquadro elevato, il modello sembrerebbe spiegare bene la variabilità dei dati
-# coeff significativo e vicino a 1 --> in linea con quanto ci saremmo aspettati
+# coeff significativo e MOLTO vicino a 1 --> in linea con quanto ci saremmo aspettati (per questo modello poco utile, sostanzialmente per domani predice il valore di oggi)
 # intercetta significativa ma bassa, sembra indicare una leggera tendenza positiva ( in assenza di altri fattori, il valore del titolo ha una piccola crescita costante nel tempo)
 
 # a occhio i residui non sembrano problematici ma facciamo una diagnostica più precisa:
@@ -210,7 +385,7 @@ x11()
 plot(residui, 
      main = "Residui", 
      ylab = "Residui")
-abline(h = 0, col = 2, lwd = 4) # non capisco perché non si veda 
+abline(h = 0, col = 2, lwd = 2)
 # sembrerebbero grosso modo simmetrici intorno allo 0
 # i valori estremi di errore sono associati a un crollo improvviso del valore del titolo, non si poteva prevedere
 # non propriamente stazionari (a occhio, poi approfondiamo), ce lo aspettavamo (la volatilità del mercato è variabile)
@@ -239,13 +414,14 @@ bptest(primo_modello)  # P-value bassissimo --> rifiuto H0, residui eteroschedas
 
 
 # confrontiamo valori fittati e valori reali
-fitted_values = fitted(primo_modello)
+fitted_values = primo_modello$fitted.values
 
 x11()
-plot(serie, col = 1)
+plot(serie[,2], col = 1)
 lines(fitted_values, col = 2)
 # confermo il modello sembra riuscire a spiegare bene i dati usando come unico predittore il valore del giorno precedente
-
+# forse si sta adattando anche troppo ai dati (overfitting), voglio mostrare come un modello così non faccia meglio di una
+# previsione casuale per il valore di domani (domani = oggi + rnorm(mu, sd_rendimenti))
 
 
 # PREVISIONE del giorno successivo (puntuale)
@@ -253,7 +429,7 @@ lines(fitted_values, col = 2)
 beta0 = primo_modello$coefficients[1]
 beta1 = primo_modello$coefficients[2]
 
-previsione_puntuale = beta0 + beta1*serie[1] 
+previsione_puntuale = beta0 + beta1*serie[,2] 
 
 # Calcolo dell'errore standard della previsione (è una stima della varianza dei residui)
 errore_standard = sqrt(sum(residui^2) / length(residui))
@@ -286,7 +462,73 @@ for(i in 2:length(serie))
 
 percentuale_valori_fuori_int = valori_fuori_intervallo/length(serie)
 
-### mmmmh fin troppo bassa, forse gli intervalli sono troppo larghi (modello inutile per il businessman)
+## mmmmh fin troppo bassa, forse gli intervalli sono troppo larghi (modello inutile per il businessman)
+## oppure il modello overfitta i dati (dovrei usare una porzione di training più piccola e tenere dati per il test)
+
+
+####################
+### lavoro mamma ###
+####################
+
+rm(list=ls())
+
+## lavoro mamma
+
+vec = unlist(`goccia.(ita)`)
+
+freq = rep(NA,length(vec))
+count_met = 0
+
+
+
+for(i in 1:length(vec)) 
+  {
+  
+  if(vec[i] == "M") 
+    { 
+     count_met = count_met + 1
+  }
+  
+  freq[i] = count_met / i  
+}
+
+x11()
+plot(freq, type = "l")
+abline(h = 0.59, col = 2, lty = 3)
+abline(h = 0.60, col = 4, lty = 3)
+abline(h = 0.58, col = 4, lty = 3)
+
+
+
+
+x11()
+# Limitiamo il grafico ai primi 300 dati
+plot(freq[1:300], type = "l", col = "black", lwd = 1, 
+     xlab = "Numero di osservazioni", ylab = "Frequenza Empirica", 
+     main = "Convergenza della Frequenza Empirica")
+
+# Aggiungiamo linee orizzontali per i valori di interesse
+abline(h = freq[300], col = "red", lty = 3, lwd = 2)
+abline(h = freq[300]+0.025, col = "green", lty = 3, lwd = 2)
+abline(h = freq[300]-0.025, col = "green", lty = 3, lwd = 2)
+
+# Aggiungiamo una legenda
+legend("topright", legend = c("Frequenza Empirica", "Frequenza stimata", "Intervallo superiore", "Intervallo inferiore"),
+       col = c("black", "red", "green", "green"), lty = c(1, 3, 3, 3), lwd = c(2, 2, 2, 2))
+
+
+
+
+graphics.off()
+
+
+
+
+
+
+
+
+
 
 
 
