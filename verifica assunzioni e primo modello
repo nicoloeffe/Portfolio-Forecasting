@@ -5,18 +5,19 @@ library(e1071)
 library(lmtest)
 library(forecast)
 library(tseries)
+library(fitdistrplus)
 
 
 rm(list=ls())
 
 
 #import dei dati
-start_date <- "2010-01-01"
-end_date <- Sys.Date()
+start_date = "2010-01-01"
+end_date = Sys.Date()
 
 
 # Lista dei simboli da scaricare
-titoli <- c("SPY", "AGG", "VNQ", "GLD")  # Aggiungi i titoli che ti interessano
+titoli = c("SPY", "AGG", "VNQ", "GLD")  # Aggiungi i titoli che ti interessano
 
 
 # Ciclo per scaricare i dati per ogni titolo
@@ -341,11 +342,11 @@ pacf(serie_incrementi[,2], main = "Correlogramma parziale INCREMENTI AGG", lag.m
 # riassumendo quanto visto fino ad ora:
 # - i dati relativi al valore giornaliero del titolo non rispettano l'assunzione di stazionarietà mentre quelli dei rendimenti (quasi) si 
 # - i valori giornalieri sono temporalmente correlati tra loro (tutta apparenza), i rendimenti non presentano correlazioni temporali significative (purtroppo) (soldi facili per tutti altrimenti)
+#                                                             (mi spiego meglio nelle righe 436 e seguenti)
 
-
-###########################################
-## VALUTAZIONE DEL MODELLO - possibilità ##
-###########################################
+#####################################################################
+## DEFINIZIONE FINESTRE PER TRAIN E TEST DEL MODELLO - possibilità ##
+#####################################################################
 
 ## diversi modi per dividere i dati in train e test set, mi interessa definire qua delle funzioni che possano essere
 ## usate per dividere il dataset in varie finestre (ciascuna con dati di train e dati di test)
@@ -403,21 +404,45 @@ sliding_windows = function(dataset_completo, train_size, test_size, step_size)
 
 
 
+# funzione per creare finestre campionate casualmente:
 
-#########################################
-## PRIMO MODELLO: Random Walk traslata ##
-#########################################
+random_windows = function(dataset_completo, train_size, test_size, number_of_windows) 
+{
+  windows = list()
+  
+  for (i in 1:number_of_windows) 
+  {
+    start_train = sample(1:(nrow(dataset_completo) - (train_size + test_size)), 1)
+    end_train = start_train + train_size - 1
+    start_test = end_train + 1
+    end_test = start_test + test_size - 1
+    
+    windows[[length(windows) + 1]] = list(
+      train = dataset_completo[start_train:end_train,2],
+      test = dataset_completo[start_test:end_test,2]
+    )
+  }
+  
+  return(windows)
+}
+
+
+
+##########################
+## PRIMO MODELLO: AR(1) ##
+##########################
 
 ## N.B: abbiamo visto prima che la serie dei valori giornalieri non è stazionaria, sarebbe una scelta più felice quella di usare i rendimenti (esattamente ciò che faremo poi)
 ## voglio però prima mostrare come la forte correlazione tra i valori giornalieri del titolo di fatto non sia così utile (dice solo che i rendimenti sono piccoli in media)
 
-# creo una regressione AR(1) con offset (random walk traslato):
+## qua di fatto giustifico l'insinuazione fatta a riga 343 (correlazione forte ma informazione solo apparentemente significativa)
+
+# creiamo una regressione AR(1) e analizziamo il modello risultante:
 
 valore_precedente = serie[1:nrow(serie)-1,2] # escludo l'ultimo valore (non è il valore precedente di nessun altro)
 
 primo_modello = lm(serie[-1,2] ~ valore_precedente)
 # escludo il primo valore (non ha valori precedenti che possiamo usare per stimarlo)
-
 
 # visualizziamo i parametri stimati:
 summary(primo_modello)
@@ -425,6 +450,47 @@ summary(primo_modello)
 # coeff significativo e MOLTO vicino a 1 --> in linea con quanto ci saremmo aspettati (per questo modello poco utile, sostanzialmente per domani predice il valore di oggi)
 # intercetta significativa ma bassa, sembra indicare una leggera tendenza positiva ( in assenza di altri fattori, il valore del titolo ha una piccola crescita costante nel tempo)
 
+## il valore precedente è molto significativo, l'elevata correlazione tra valori vicini è quindi confermata dal modello.
+## quando dico che questa è tutta apparenza intendo dire che di fatto l'evidenza raccolta da questo modello non è nulla di sorprendente: a meno di eventi straordinari il valore di domani assomiglierà a quello di oggi (incrementi giornalieri piccoli in media)
+
+
+# confrontiamo valori fittati e valori reali
+fitted_values = c((0), primo_modello$fitted.values)
+
+x11()
+plot(serie[1:10,2], col = 1)
+lines(fitted_values[1:10], col = 2)
+## il modello è estremamente scadente: predice per domani il valore di oggi 
+## viene il dubbio che includere altre isservazioni oltre a quella del giorno immediatamente 
+## precedente potrebbe migliorare le cose (no! infatti, la PACF risulti “piatta” dopo il primo picco 
+## proprio perché una volta usato il valore immediatamente precedente per spiegare quello successivo
+## tutti i valori che vengono ancora prima non sono più significativamente correlati con quello considerato)
+
+## mostriamo come a prima vista un modello lineare possa non sembrare una pessima idea pur presentando i suoi limiti:
+
+coordinate = cbind(valore_precedente, serie[-1, 2])
+
+x11()
+plot(coordinate)
+abline(a = primo_modello$coefficients[1], b = primo_modello$coefficients[2], lwd = 3, col = 3)
+
+
+graphics.off()
+
+
+# L'analisi del modello sarà così strutturata:
+# - diagnostica dei residui
+# - costruzione intervalli di previsione
+# - valutazione della bontà del modello sui test set
+
+# mostreremo infine quanto di fatto tale modello non riesca a catturare alcuna informazione particolarmente utile
+# confrontandolo con un modello estremamente naif (valore_domani = valore_oggi + rnorm(mu_incrementi, sd_incrementi)) 
+
+#########################################
+## PRIMO MODELLO - diagnostica residui ##
+#########################################
+
+summary(primo_modello)
 # a occhio i residui non sembrano problematici ma facciamo una diagnostica più precisa:
 
 # Calcoliamo i residui e grafichiamoli
@@ -439,15 +505,46 @@ abline(h = 0, col = 2, lwd = 2)
 # i valori estremi di errore sono associati a un crollo improvviso del valore del titolo, non si poteva prevedere
 # non propriamente stazionari (a occhio, poi approfondiamo), ce lo aspettavamo (la volatilità del mercato è variabile)
 
+
+## RESIDUI NORMALI?
+
 # Grafico Q-Q per verificare la normalità dei residui:
 x11()
 qqnorm(residui)
 qqline(residui, col = "red")
-# deviazioni dalle code normali suggeriscono la presenza di eventi estremi, che il modello non può catturare completamente (giornate matte del mercato)
+# deviazioni dalle code normali suggeriscono la presenza di eventi estremi che il modello non può catturare completamente (giornate matte del mercato)
 
 # non è un problema se il modello non è perfetto nella previsione di eventi estremi, l'importante è che offra un buon adattamento complessivo, 
 # considerando che nel contesto finanziario gli eventi estremi sono intrinsecamente difficili da prevedere. L'importante è che il modello 
 # riesca a catturare la tendenza generale e a gestire le fluttuazioni normali del mercato
+
+
+shapiro.test(residui) # H0: residui normali, p-value basso --> rifiuto H0 (normalità dei residui ipotesi forte)
+
+x11()
+hist(residui, breaks = 50, probability = TRUE, col = "lightblue", main = "Histogram with Normal Curve")
+lines(density(residui), col = "red")  # Aggiungi la curva della densità
+curve(dnorm(x, mean = mean(residui), sd = sd(residui)), col = "darkgreen", add = TRUE)  # Curva normale teorica
+legend("topright", 
+       legend = c("Densità empirica dei residui", "Densità Normale Teorica"), 
+       col = c("red", "darkgreen"), 
+       lty = 1, 
+       cex = 0.8)
+
+## più stretta al centro ma code pesanti, la normale non sembra approssimare been la distribuzione dei residui
+## lo vediamo anche da skewness e kurtosis:
+
+
+skewness(residui) # = -1.3391 --> asimmetria negativa (distribuzione spostata verso sinistra), tipico dei mercati finanziari: spesso i prezzi subiscono cali più significativi rispetto ai rialzi
+kurtosis(residui) # = 26.691 >> 0 --> la distribuzione ha code molto più pesanti rispetto alla distribuzione normale.
+
+## confermo che assumere la normalità dei residui potrebbe essere un'ipotesi forte, ribadisco però quanto 
+## scritto in precedenza: le giornate matte dei mercati (corrispondenti a residui particolarmente alti e responsabili dello spessore delle code) 
+## non sono ciò che il nostro modello vuole spiegare. alla luce di questa considerazione potrebbe essere obiettato che quelle osservazione
+## dovrebbero essere tolte dal dataset ma a questa obiezione risponderei così:
+## "non stiamo costruendo questo modello perché pensiamo possa spiegare bene i dati, è un modello estremamente semplice, ci interessa usarlo solo per far emergere degli aspetti dell'analisi che troviamo interessanti. 
+##  l'obiettivo a questo punto del lavoro è solo quello di fare osservazioni opportune e rilevanti, solo più avanti proveremo a usare modelli più sofisticati per spiegare meglio i dati".
+
 
 # Calcoliamo e plottiamo l'autocorrelazione dei residui
 x11()
@@ -460,59 +557,126 @@ bptest(primo_modello)  # P-value bassissimo --> rifiuto H0, residui eteroschedas
                        # si ripercuote sul modulo degli errori.
 
 
+## IN CONCLUSIONE:
+## residui indipendenti ma NON normali (e nemmeno identicamente distribuiti, eteroschedasticità)
 
+## ??possiamo comunque usare il modello lineare??
 
-# confrontiamo valori fittati e valori reali
-fitted_values = primo_modello$fitted.values
-
-x11()
-plot(serie[,2], col = 1)
-lines(fitted_values, col = 2)
-# confermo il modello sembra riuscire a spiegare bene i dati usando come unico predittore il valore del giorno precedente
-# forse si sta adattando anche troppo ai dati (overfitting), voglio mostrare come un modello così non faccia meglio di una
-# previsione casuale per il valore di domani (domani = oggi + rnorm(mu, sd_rendimenti))
+#########################################################
+## PRIMO MODELLO- costruzione intervalli di previsione ##
+#########################################################
 
 
 # PREVISIONE del giorno successivo (puntuale)
 
-beta0 = primo_modello$coefficients[1]
-beta1 = primo_modello$coefficients[2]
+previsione_puntuale = primo_modello$fitted.values
 
-previsione_puntuale = beta0 + beta1*serie[,2] 
 
-# Calcolo dell'errore standard della previsione (è una stima della varianza dei residui)
-errore_standard = sqrt(sum(residui^2) / length(residui))
+## DUE vie per individuare degli intervalli di previsione per i valori successivi:
+
+# 1) approccio frequentista: l'intervallo di previsione (simmetrico) viene centrato sulla previsione puntuale fatta dal modello 
+#    e la sua ampiezza viene determinata a partire dalla varianza dell'errore (assunto normale) e dal quantile legato al livello di confidenza richiesto per la previsione 
+
+# 2) approccio bayesiano: consideriamo le osservazioni future come v.a. e utilizziamo la distribuzione a posteriori per calcolare gli intervalli di previsione. 
+
+# ???? chiedere a mastrantonio se abbia senso scomodare l'approccio bayesiano ????
+
+
+## approccio frequentista: 
+
+# Calcolo una stima della deviazione standard e della media dei residui:
+sd_residui = sd(residui)
+mean_residui = mean(residui) 
 
 # Determinazione del valore critico per un intervallo di confidenza del 95% (siamo sotto l'assunzione (forte) valutata prima di normalità dei dati)
-t_critico = qnorm(0.95)  
+alpha = 0.05
+quantile = qnorm(1 - alpha/2, mean_residui, sd_residui)  
 
 # Calcoliamo l'intervallo di previsione al 95%
-limite_superiore = previsione_puntuale + t_critico * errore_standard
-limite_inferiore = previsione_puntuale - t_critico * errore_standard
+limite_superiore = previsione_puntuale + quantile*sd_residui
+limite_inferiore = previsione_puntuale - quantile*sd_residui
 
-# Visualizza il risultato
-cat("Previsione puntuale: ", previsione_puntuale, "\n")
-cat("Intervallo di previsione al 90%: [", limite_inferiore, ", ", limite_superiore, "]\n")
+# Visualizziamo il risultato
+x11()
+plot(serie[2:50,2], col = 1, pch = 16, cex = 0.5)
+lines(limite_inferiore[1:50], col = 2, type = 'l')
+lines(limite_superiore[1:50], col = 2, type = 'l')
+legend("topleft",
+       legend = c("Serie reale", 1 - alpha),
+       col    = c(1, 2),
+       pch    = c(16, NA),
+       lty    = c(NA, 1),
+       pt.cex = c(0.5, NA),
+       bty    = "n")
 
-## DOVREI/POTREI CONSIDERARE ANCHE L'INCERTEZZA NELLA STIMA DEI PARAMETRI? (GPT DICEVA DI AGGIUNGERE UN TERMINE LEGATO ALL'ERRORE STANDARD NELLA STIMA DEI PARAMETRI DEL MODELLO)
+
+graphics.off()
+
+
+## ??? DOVREI/POTREI CONSIDERARE ANCHE L'INCERTEZZA NELLA STIMA DEI PARAMETRI? (GPT DICEVA DI AGGIUNGERE UN TERMINE LEGATO ALL'ERRORE STANDARD NELLA STIMA DEI PARAMETRI DEL MODELLO)
+
 
 # vediamo se veramente il valore vero sta nell'intervallo di previsione il 95% delle volte:
-previsione_puntuale = beta0 + beta1*serie
 
-ampiezza_int = t_critico * errore_standard
+ampiezza_int = 2*(quantile*sd_residui)
 
 valori_fuori_intervallo = 0
 
-for(i in 2:length(serie))
+for(i in 2:nrow(serie))
 {
-  if(serie[i] > previsione_puntuale[i] + ampiezza_int | serie[i] < previsione_puntuale[i] - ampiezza_int)
+  if(serie[i,2] > previsione_puntuale[i] + ampiezza_int | serie[i,2] < previsione_puntuale[i] - ampiezza_int)
     valori_fuori_intervallo = valori_fuori_intervallo + 1
 }
 
-percentuale_valori_fuori_int = valori_fuori_intervallo/length(serie)
+percentuale_valori_fuori_int = valori_fuori_intervallo/nrow(serie)
 
-## mmmmh fin troppo bassa, forse gli intervalli sono troppo larghi (modello inutile per il businessman)
-## oppure il modello overfitta i dati (dovrei usare una porzione di training più piccola e tenere dati per il test)
+
+## confrontiamo la percentuale osservatadi valori fuori dall'int con la percentuale teorica (alpha):
+cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori intervallo: %.2f",
+            alpha, percentuale_valori_fuori_int))
+
+## percentuale osservata >> percentuale teorica --> gli intervalli, seppur siano molto larghi, non lo sono abbastanza!
+## tale discrepanza è dovuta al fatto che i residui non si distribuiscono davvero normalmente: le code della loro distribuzione
+## sono molto più pesanti (ricordo i plot e il valore elevatissimo di kurtosis)
+
+
+## ???? forse ha senso andare a rivedere cosa avevamo fatto nell'esercitazione dei dugonghi... avevamo creato delle bande di previsione per un modello lineare anche lì 
+
+
+##########################
+## PRIMO MODELLO - test ##
+##########################
+
+# come prima cosa siamo interessati a vedere se costruire il modello su 100 dati o su 1000 fa la differenza (test set preso sempre uguale a 1)
+
+
+# vogliamo vedere quanto peggiori la predizine andando avanti (non più solo il giorno immediatamente successivo ma anche dopodomani, dopodopodomani etc...)
+# posso graficare come si alza l'errore e come dovrebbero cambiare le bande di previsione (allargarsi oltremodo)
+
+
+############################################################
+## MODELLO 1 bis - modifiche di progetto e considerazioni ##
+############################################################
+
+# valutiamo (e giustifichiamo) l'impatto di scelte di progetto quali:
+# - dimensione del train set (quanto indietro mi serve guardare? comew cambiano le cose?) 
+# - dimensione del test (quanto peggiorano le mie previsioni andando in là? ampiezza dell'intervallo e percentuale misurata di correttezza dello stesso)
+# - AR(2), AR(3), ... , AR(n), sono predittori significativi anche i giorni che precedono l'ultimo? no!
+
+################################################
+## PRIMO MODELLO per il VALORE del PORTFOGLIO ##
+################################################
+
+## proviamo due diversi approcci su due diversi portafogli per evidenziare i limiti di un approccio semplice come il primo proposto (e come peggiorano le cose in certe situazioni)
+
+# 1) applichiamo il modello migliore ottenuto fino ad ora (quello su cui ha lavorato nico forse) direttamente alla serie del valore complessivo del
+#    portfoglio (ottenuta sommando (eventualmente con pesi) i valori di ciascun titolo)
+
+# 2) applichiamo lo stesso modello singolarmente a ciascun serie e uniamo gli output per creare
+#    un intervallo di previsione per il valore complessivo del portafoglio di domani
+
+
+## creiamo questi modelli per due diversi portafogli: uno con titoli tra loro poco correlati e uno con titoli molto correlati (aziende tech americane ad es)
 
 
 ####################
