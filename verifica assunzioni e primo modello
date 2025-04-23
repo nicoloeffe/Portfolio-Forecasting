@@ -6,6 +6,8 @@ library(lmtest)
 library(forecast)
 library(tseries)
 library(fitdistrplus)
+library(dplyr)
+library(gridExtra)
 
 
 rm(list=ls())
@@ -458,8 +460,23 @@ summary(primo_modello)
 fitted_values = c((0), primo_modello$fitted.values)
 
 x11()
-plot(serie[1:10,2], col = 1)
-lines(fitted_values[1:10], col = 2)
+plot(1:10, serie[1:10,2],
+     pch   = 16,          # cerchi pieni
+     ylab  = "Valore",
+     main  = "Valore reale vs. Fitted",
+     xaxt  = "n")         # disattiva asse x automatico
+axis(1, at = 1:10, labels = 1:10)
+abline(v = 1:10, col = "lightgray", lty = 3)
+points(1:10, fitted_values[1:10],
+       pch  = 17,         # triangoli pieni
+       col  = 3)
+legend("topleft",
+       legend = c("Osservato", "Fittato"),
+       col    = c("1", "3"),
+       pch    = c(16, 17),
+       lty    = 1,
+       bty    = "n")
+
 ## il modello è estremamente scadente: predice per domani il valore di oggi 
 ## viene il dubbio che includere altre isservazioni oltre a quella del giorno immediatamente 
 ## precedente potrebbe migliorare le cose (no! infatti, la PACF risulti “piatta” dopo il primo picco 
@@ -481,6 +498,7 @@ graphics.off()
 # L'analisi del modello sarà così strutturata:
 # - diagnostica dei residui
 # - costruzione intervalli di previsione
+# - impatto della dimensione del train test
 # - valutazione della bontà del modello sui test set
 
 # mostreremo infine quanto di fatto tale modello non riesca a catturare alcuna informazione particolarmente utile
@@ -504,6 +522,32 @@ abline(h = 0, col = 2, lwd = 2)
 # sembrerebbero grosso modo simmetrici intorno allo 0
 # i valori estremi di errore sono associati a un crollo improvviso del valore del titolo, non si poteva prevedere
 # non propriamente stazionari (a occhio, poi approfondiamo), ce lo aspettavamo (la volatilità del mercato è variabile)
+
+
+## guardiamo meglio cosa succede in corrispondenza di quei valori di residui elevati:
+
+x11()
+plot((which.max(residui)-10):(which.max(residui)+10), serie[(which.max(residui)-10):(which.max(residui)+10),2],
+     pch   = 16,
+     type = 'b',
+     ylab  = "Valore",
+     main  = "Valore reale vs. Fitted")
+abline(v = (which.max(residui)-10):(which.max(residui)+10), col = "lightgray", lty = 3)
+points((which.max(residui)-10):(which.max(residui)+10), fitted_values[(which.max(residui)-11):(which.max(residui)+9)],
+       pch  = 17,         # triangoli pieni
+       col  = 3)
+legend("topright",
+       legend = c("Osservato", "Fittato"),
+       col    = c("1", "3"),
+       pch    = c(16, 17),
+       lty    = 1,
+       bty    = "n")
+
+# come ci aspettavamo questa serie di residui elevati dipende da un momento di elevata volatilità del valore del titolo,
+# un modello semplice come l'AR(1) considerato non è in grado di considerare questo fattore nella sua previsione
+
+graphics.off()
+
 
 
 ## RESIDUI NORMALI?
@@ -556,20 +600,25 @@ bptest(primo_modello)  # P-value bassissimo --> rifiuto H0, residui eteroschedas
                        # è quello che dicevamo prima, la volatilità del mercato è variabile, questo
                        # si ripercuote sul modulo degli errori.
 
+# vediamo se, come suggeriva il plot fatto prima, i residui potrebbero essere considerati omoschedastici
+# fino a poco prima del momento di massimo errore del modello:
+bptest(serie[2:(which.max(residui)-20),2] ~ valore_precedente[1:(which.max(residui)-21)])
+
+# p-value = 0.1825  --> possiamo considerare i residui omoschedastici fino a prima di quel momento
+
 
 ## IN CONCLUSIONE:
-## residui indipendenti ma NON normali (e nemmeno identicamente distribuiti, eteroschedasticità)
+## residui indipendenti ma NON normali (e nemmeno identicamente distribuiti, eteroschedasticità (omoschedasticità spolo locale))
 
 ## ??possiamo comunque usare il modello lineare??
 
-#########################################################
-## PRIMO MODELLO- costruzione intervalli di previsione ##
-#########################################################
+###########################################################
+## PRIMO MODELLO - funzione valutazione metrica di bontà ##
+###########################################################
 
 
-# PREVISIONE del giorno successivo (puntuale)
-
-previsione_puntuale = primo_modello$fitted.values
+## la principale metrica che utilizzeremo per confrontare la bontà dei modelli costruiti 
+## sarà la capacità del modello di produrre intervalli di previsione che contengono i valori veramente osservati
 
 
 ## DUE vie per individuare degli intervalli di previsione per i valori successivi:
@@ -582,25 +631,74 @@ previsione_puntuale = primo_modello$fitted.values
 # ???? chiedere a mastrantonio se abbia senso scomodare l'approccio bayesiano ????
 
 
-## approccio frequentista: 
 
-# Calcolo una stima della deviazione standard e della media dei residui:
-sd_residui = sd(residui)
-mean_residui = mean(residui) 
+## scrivo quindi qua sotto una funzione che possa essere utilizzata più avanti per valutare i diversi modelli rispetto a questa metrica
+## per ora ho scritto solo la funzione che crea gli intervalli come farebbe un frequentista
 
-# Determinazione del valore critico per un intervallo di confidenza del 95% (siamo sotto l'assunzione (forte) valutata prima di normalità dei dati)
+evaluate_intervals <- function(modello, alpha) {
+  
+  # modello: oggetto lm AR(1)
+  # alpha: livello di significatività (es. 0.05)
+
+  # Previsione puntuale e residui
+  previsione_puntuale = modello$fitted.values
+  residui = modello$residuals
+  
+  # Calcolo una stima della deviazione standard e della media dei residui:
+  sd_residui = sd(residui)
+  mean_residui = mean(residui) 
+  
+  # Determinazione del valore critico per un intervallo di confidenza di livello 1-alpha (siamo sotto l'assunzione (forte) valutata prima di normalità dei residui)
+  quantile = qnorm(1 - alpha/2, mean_residui, sd_residui) 
+  
+  
+  n = nobs(modello)
+  
+  # Pre-allocazione
+  limite_superiore =  rep(NA, n)
+  limite_inferiore = rep(NA, n)
+  storia_crescita_valori_fuori_int = rep(NA, n)
+  
+  # Calcoliamo l'intervallo di previsione 
+  limite_superiore = previsione_puntuale + quantile*sd_residui
+  limite_inferiore = previsione_puntuale - quantile*sd_residui
+  
+  
+  # Calcolo interi a partire dal secondo punto
+  valori_fuori_intervallo = 0
+  storia_crescita_valori_fuori_int[1] = 0
+  
+  for(i in 1:nobs(modello)) {
+    
+    # verifico se l'osservazione corrente è fuori intervallo
+    if(model.frame(modello)[i,1] < limite_inferiore[i] | model.frame(modello)[i,1] > limite_superiore[i]) {
+      valori_fuori_intervallo = valori_fuori_intervallo + 1
+    }
+    
+    storia_crescita_valori_fuori_int[i] = valori_fuori_intervallo
+  }
+  
+  percentuale_valori_fuori_int = valori_fuori_intervallo / n
+  
+  return(list(
+    limite_superiore = limite_superiore,
+    limite_inferiore = limite_inferiore,
+    percentuale_valori_fuori_int = percentuale_valori_fuori_int,
+    storia_crescita_valori_fuori_int = storia_crescita_valori_fuori_int
+  ))
+}
+
+
+## vediamo se la funzione fa quello che ci aspetteremmo
+
+risultati_prova = evaluate_intervals(primo_modello, 0.05)
 alpha = 0.05
-quantile = qnorm(1 - alpha/2, mean_residui, sd_residui)  
 
-# Calcoliamo l'intervallo di previsione al 95%
-limite_superiore = previsione_puntuale + quantile*sd_residui
-limite_inferiore = previsione_puntuale - quantile*sd_residui
-
-# Visualizziamo il risultato
+# Visualizziamo il risultato degli intervalli restituiti vs i valori osservati
 x11()
 plot(serie[2:50,2], col = 1, pch = 16, cex = 0.5)
-lines(limite_inferiore[1:50], col = 2, type = 'l')
-lines(limite_superiore[1:50], col = 2, type = 'l')
+lines(risultati_prova$limite_inferiore[1:50], col = 2, type = 'l')
+lines(risultati_prova$limite_superiore[1:50], col = 2, type = 'l')
 legend("topleft",
        legend = c("Serie reale", 1 - alpha),
        col    = c(1, 2),
@@ -613,45 +711,436 @@ legend("topleft",
 graphics.off()
 
 
+
+
 ## ??? DOVREI/POTREI CONSIDERARE ANCHE L'INCERTEZZA NELLA STIMA DEI PARAMETRI? (GPT DICEVA DI AGGIUNGERE UN TERMINE LEGATO ALL'ERRORE STANDARD NELLA STIMA DEI PARAMETRI DEL MODELLO)
 
 
-# vediamo se veramente il valore vero sta nell'intervallo di previsione il 95% delle volte:
-
-ampiezza_int = 2*(quantile*sd_residui)
-
-valori_fuori_intervallo = 0
-
-for(i in 2:nrow(serie))
-{
-  if(serie[i,2] > previsione_puntuale[i] + ampiezza_int | serie[i,2] < previsione_puntuale[i] - ampiezza_int)
-    valori_fuori_intervallo = valori_fuori_intervallo + 1
-}
-
-percentuale_valori_fuori_int = valori_fuori_intervallo/nrow(serie)
 
 
-## confrontiamo la percentuale osservatadi valori fuori dall'int con la percentuale teorica (alpha):
+## confrontiamo la percentuale osservata di valori fuori dall'int con la percentuale teorica (alpha):
 cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori intervallo: %.2f",
-            alpha, percentuale_valori_fuori_int))
+            alpha, risultati_prova$percentuale_valori_fuori_int))
 
-## percentuale osservata >> percentuale teorica --> gli intervalli, seppur siano molto larghi, non lo sono abbastanza!
+## percentuale osservata >>> percentuale teorica --> gli intervalli, seppur siano molto larghi, non lo sono abbastanza!
 ## tale discrepanza è dovuta al fatto che i residui non si distribuiscono davvero normalmente: le code della loro distribuzione
 ## sono molto più pesanti (ricordo i plot e il valore elevatissimo di kurtosis)
 
+## una percentuale così alta di valori fuori intervallo mi sorprende, è ancora più alta di quanto mi sarei aspettato 
+## proviamo a vedere come si distribuiscono le osservazioni fuori intervallo:
+
+idx = seq_along(risultati_prova$storia_crescita_valori_fuori_int)
+
+x11()
+plot(idx, risultati_prova$storia_crescita_valori_fuori_int,
+     type  = "l",
+     lwd   = 2,
+     col   = 1,
+     ylab  = "Conteggio cumulato osservazioni fuori IP",
+     panel.first = grid(col = "lightgray", lty = "dotted"))
+abline(a = 0, b = 0.33,
+       col  = "forestgreen",
+       lwd  = 2,
+       lty  = "dashed")
+v0 = which.max(primo_modello$residuals)
+abline(v = v0,
+       col  = "steelblue",
+       lwd  = 2,
+       lty  = "dotdash")
+legend("topleft",
+       legend = c("# osservaizoni fuori-IP", "Punto individuato da diagnostica residui"),
+       col    = c(1, "steelblue"),
+       lty    = c("solid", "dotdash"),
+       lwd    = c(2, 2, 2),
+       bty    = "n")
+
+# La linea verticale blu segna il punto in cui la variabilità dei residui cresce (v. grafico diagnostica) 
+# Prima di quel punto, i residui possono essere considerati omoschedastici e il ritmo di crescita dei fuori‑intervallo cresce quasi in linea con l’aspettativa;
+# dopo, invece, la pendenza aumenta nettamente, riflettendo il passaggio a una fase di volatilità più elevata
+
+# confrontiamo la frequenza di fuori intervallo osservata nella prima porzione di dati con quella teorica (alpha):
+
+valori_fuori_intervallo = 0
+storia_crescita_valori_fuori_int = rep(NA, (which.max(residui)-20))
+semi_ampiezza_int = 0.5*(risultati_prova$limite_superiore[1] - risultati_prova$limite_inferiore[1])
+
+for(i in 2:(which.max(residui)-20))
+{
+  if(serie[i,2] > primo_modello$fitted.values[i-1] + semi_ampiezza_int | serie[i,2] < primo_modello$fitted.values[i-1] - semi_ampiezza_int)
+    valori_fuori_intervallo = valori_fuori_intervallo + 1
+  
+  storia_crescita_valori_fuori_int[i] = valori_fuori_intervallo
+}
+
+percentuale_valori_fuori_int = valori_fuori_intervallo/(which.max(residui)-20)
+
+cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori intervallo: %.2f",
+            alpha, percentuale_valori_fuori_int))
+
+## meglio ma comunque molto maggiore della teorica, penso sia dovuto al fatto che i residui non sono davvero normali (code pesanti)
+
+
 
 ## ???? forse ha senso andare a rivedere cosa avevamo fatto nell'esercitazione dei dugonghi... avevamo creato delle bande di previsione per un modello lineare anche lì 
+
+
+######################################
+## PRIMO MODELLO - dimensione train ##
+######################################
+
+
+## Il modello AR(1) costruito sopra usa tutte le osservazioni disponibili per stimare i parametri ma questo potrebbe peggiorare le sue performance:
+## se la dinamica del titolo cambia (ad es. inizia una nuova fase di volatilità), i dati troppo vecchi possono essere fuorvianti
+
+# siamo quindi interessati a vedere se costruire il modello su 100, 1000 o 3000 dati faccia differenza (e quale dimensione del train risulti migliore per descrivere i dati)
+
+## N.B. non è detto che il modello migliore per descrivere sia anche quello migliore per predirre.
+##      confronteremo i risultati trovati qui con quelli che otterremo nella parte di valutazione del modello predittivo
+
+
+# definisco il numero di finestre che campionerò (ovvero il numero di modelli che fitterò)
+num_windows = 1000
+
+
+
+## dimensione train = 100:
+
+finestre_100 = random_windows(serie, 100, 0, num_windows)
+# campiono diverse finestre di train
+
+## ???? e se le finestre non le prendessi in modo randomico? 
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+
+results_100 = vector("list", num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_100[[i]]$train   
+  
+  valori = train[-1]          
+  predittori = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  
+  # Salvo summary, residui e fitted.values
+  results_100[[i]] = list(
+    summary       = summary(mod),
+    residuals     = residuals(mod),
+    fitted.values = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+  )
+}
+
+# esempio di accesso ai dati salvati nella lista:
+results_100[[10]]$summary
+results_100[[7]]$residuals
+results_100[[1]]$fitted.values
+results_100[[41]]$percentuale_valori_fuori_int
+
+
+
+
+## dimensione train = 500:
+
+finestre_500 = random_windows(serie, 500, 0, num_windows)
+# campiono diverse finestre di train
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+
+results_500 = vector("list", num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_500[[i]]$train   
+  
+  valori = train[-1]          
+  predittori = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  
+  # Salvo summary, residui e fitted.values
+  results_500[[i]] = list(
+    summary       = summary(mod),
+    residuals     = residuals(mod),
+    fitted.values = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+  )
+}
+
+
+
+
+## dimensione train = 1000:
+
+finestre_1000 = random_windows(serie, 1000, 0, num_windows)
+# campiono diverse finestre di train
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+
+results_1000 = vector("list", num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_1000[[i]]$train   
+  
+  valori = train[-1]          
+  predittori = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  
+  # Salvo summary, residui e fitted.values
+  results_1000[[i]] = list(
+    summary       = summary(mod),
+    residuals     = residuals(mod),
+    fitted.values = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+    
+  )
+}
+
+
+
+## dimensione train = 3000:
+
+finestre_3000 = random_windows(serie, 3000, 0, num_windows)
+# campiono diverse finestre di train
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+
+results_3000 = vector("list", num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_3000[[i]]$train   
+  
+  valori = train[-1]          
+  predittori = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  
+  # Salvo summary, residui e fitted.values
+  results_3000[[i]] = list(
+    summary       = summary(mod),
+    residuals     = residuals(mod),
+    fitted.values = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+
+  )
+}
+
+
+# confronto i valori di beta1, R^2 ed errore std restituiti dai modelli di diverse dimensioni:
+
+metrics_100 <- lapply(results_100, function(res) {
+  s <- res$summary
+  data.frame(
+    beta1                   = s$coefficients["predittori", "Estimate"],
+    R2                      = s$adj.r.squared,
+    residual_se             = s$sigma
+  )
+}) %>% bind_rows()
+
+metrics_500 = lapply(results_500, function(res) {
+  s     = res$summary
+  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+             R2    = s$adj.r.squared,
+             residual_se = s$sigma)
+}) %>% bind_rows()
+
+metrics_1000 = lapply(results_1000, function(res) {
+  s     = res$summary
+  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+             R2    = s$adj.r.squared,
+             residual_se = s$sigma)
+}) %>% bind_rows()
+
+metrics_3000 = lapply(results_3000, function(res) {
+  s     = res$summary
+  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+             R2    = s$adj.r.squared,
+             residual_se = s$sigma)
+}) %>% bind_rows()
+
+
+
+# definisco una funzione che userò sotto per fare tutti i grafici del caso (senza era un caos):
+make_hist <- function(vec, colore, titolo) {
+  mean_val <- mean(vec)
+  ggplot(data.frame(x = vec), aes(x)) +
+    geom_histogram(bins = 15, fill = colore, color = "white") +
+    geom_vline(xintercept = mean_val, linetype = "dashed", size = 1, color = colore) +
+    annotate("text", x = mean_val, y = Inf, label = sprintf("%.3f", mean_val),
+             vjust =  2, color = colore, size = 3) +
+    labs(title = titolo) +
+    theme_minimal() +
+    theme(
+      axis.title   = element_blank(),
+      axis.text.y  = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.position = "none"
+    )
+}
+
+
+
+
+
+# valori del residual standard error:
+
+residual_se_hist_100  = make_hist(metrics_100$residual_se,  "pink", "Residual Standard Error (100)")
+residual_se_hist_500  = make_hist(metrics_500$residual_se,  "lightgreen", "Residual Standard Error (500)")
+residual_se_hist_1000  = make_hist(metrics_1000$residual_se,  "steelblue", "Residual Standard Error (1000)")
+residual_se_hist_3000  = make_hist(metrics_3000$residual_se,  "salmon", "Residual Standard Error (3000)")
+
+
+x11()
+grid.arrange(
+  residual_se_hist_100, 
+  residual_se_hist_500, 
+  residual_se_hist_1000, 
+  residual_se_hist_3000,
+  ncol = 2, nrow = 2
+)
+
+
+# valori di beta1:
+
+beta1_values_hist_100  = make_hist(metrics_100$beta1,  "pink", "Distribuzione di β₁ (100)")
+beta1_values_hist_500  = make_hist(metrics_500$beta1,  "lightgreen", "Distribuzione di β₁ (500)")
+beta1_values_hist_1000  = make_hist(metrics_1000$beta1,  "steelblue", "Distribuzione di β₁ (1000)")
+beta1_values_hist_3000  = make_hist(metrics_3000$beta1,  "salmon", "Distribuzione di β₁ (3000)")
+
+
+x11()
+grid.arrange(
+  beta1_values_hist_100,
+  beta1_values_hist_500,
+  beta1_values_hist_1000,
+  beta1_values_hist_3000,
+  ncol = 2, nrow = 2
+)
+
+
+
+
+# valori R^2 aggiustato:
+
+R2_values_hist_100  = make_hist(metrics_100$R2,  "pink", "Distribuzione di Adjusted R²₁ (100)")
+R2_values_hist_500  = make_hist(metrics_500$R2,  "lightgreen", "Distribuzione di Adjusted R²₁ (500)")
+R2_values_hist_1000  = make_hist(metrics_1000$R2,  "steelblue", "Distribuzione di Adjusted R²₁ (1000)")
+R2_values_hist_3000  = make_hist(metrics_3000$R2,  "salmon", "Distribuzione di Adjusted R²₁ (3000)")
+
+x11()
+grid.arrange(
+  R2_values_hist_100,
+  R2_values_hist_500,
+  R2_values_hist_1000,
+  R2_values_hist_3000,
+  ncol = 2, nrow = 2
+)
+
+
+# in sostanza vediamo come il valore medio di ciascun parametro differisca di poco cambiando la dimensione
+# del train, la varianza come ci si può aspettare diminuisce al cresceredella dimensione del train
+# unico parametro che migliora significativamente al crescere della dimensione è R^2
+
+## importante notare come Residual Standard Error (ovvero la deviazione std dei residui) sia pressoché invariata nei tre modelli --> l'ampiezza degli intervalli è grossomodo invariata, 
+## eventuali migliori percentuali di coverage da parte di qualche modello non saranno dovute ad un aumento dell'ampiezza dell'intervallo ma saranno legate al fatto cheil modello riuscirà effettivamente a spoegare meglio i dati! 
+
+# da questa prima analisi sembra che il modello migliore per descrivere i dati potrebbe essere quello più numeroso
+
+# il nostro interesse fino ad ora non è però tanto stato sulla bontà della previsione puntuale quanto invece
+# sulla bontà degli intervalli di previsione  creati, vediamo dunque se ci sono differenze significative tra i modelli di diversa dimensione
+
+
+fuori_int_100 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_100[i] = results_100[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_100= mean(fuori_int_100)
+
+
+
+fuori_int_500 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_500[i] = results_500[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_500 = mean(fuori_int_500)
+ 
+
+
+fuori_int_1000 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_1000[i] = results_1000[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_1000 = mean(fuori_int_1000)
+
+
+
+fuori_int_3000 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_3000[i] = results_3000[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_3000 = mean(fuori_int_3000)
+
+
+# grafichiamo i risultati
+
+hist_fuori_int_100 = make_hist(fuori_int_100,  "pink",       "Errore fuori-I.P. (100)")
+hist_fuori_int_500 = make_hist(fuori_int_500,  "lightgreen", "Errore fuori-I.P. (500)")
+hist_fuori_int_1000 = make_hist(fuori_int_1000, "steelblue",  "Errore fuori-I.P. (1000)")
+hist_fuori_int_3000 = make_hist(fuori_int_3000, "salmon",     "Errore fuori-I.P. (3000)")
+
+x11()
+grid.arrange(hist_fuori_int_100,
+             hist_fuori_int_500, 
+             hist_fuori_int_1000, 
+             hist_fuori_int_3000, ncol = 2, nrow = 2)
+
+
+## anche questa metrica conferma che un modello con più osservazioni performa meglio: il miglio AR(1) usa quindi tutti i dati del dataset per stimare i coeff
+## N.B: stiamo ancora valutando la caapcità del modello di descrivere i dati che ha usato per stimare i propri coefficienti,
+##      tra poco vedremo invece quale è migliore per fare previsione sul prossimo giorno 
 
 
 ##########################
 ## PRIMO MODELLO - test ##
 ##########################
 
-# come prima cosa siamo interessati a vedere se costruire il modello su 100 dati o su 1000 fa la differenza (test set preso sempre uguale a 1)
+# ora per la prima volta valutiamo la bontà del modello quando deve predirre osservazioni mai viste, fino ad ora quella che abbiamo valutato è stata solamente la capacità descrittiva del modello
 
-
-# vogliamo vedere quanto peggiori la predizine andando avanti (non più solo il giorno immediatamente successivo ma anche dopodomani, dopodopodomani etc...)
+# vogliamo vedere quanto peggiori la predizione andando avanti (non più solo il giorno immediatamente successivo ma anche dopodomani, dopodopodomani etc...)
 # posso graficare come si alza l'errore e come dovrebbero cambiare le bande di previsione (allargarsi oltremodo)
+
+
+# qual è la dimensione migliore del train per avere un modello che predice bene? coincide con quanto trovato prima? perché?
+# va considerata anche l'ampiezza dell'intervallo! (intervalli ampissima faranno bene ma che senso hanno...)
+
 
 
 ############################################################
@@ -662,6 +1151,13 @@ cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori interval
 # - dimensione del train set (quanto indietro mi serve guardare? comew cambiano le cose?) 
 # - dimensione del test (quanto peggiorano le mie previsioni andando in là? ampiezza dell'intervallo e percentuale misurata di correttezza dello stesso)
 # - AR(2), AR(3), ... , AR(n), sono predittori significativi anche i giorni che precedono l'ultimo? no!
+# - e se, sorteggiato a caso un oggi, volessi fare previsioni su domani usando un AR(1), posso scrivere una funzione che mi aiuti a capire quanto mi conviene guardare indietro?
+
+######################################
+## confronto AR(1) con modello naif ##
+######################################
+
+
 
 ################################################
 ## PRIMO MODELLO per il VALORE del PORTFOGLIO ##
