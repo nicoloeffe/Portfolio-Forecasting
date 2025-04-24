@@ -664,7 +664,6 @@ evaluate_intervals <- function(modello, alpha) {
   limite_inferiore = previsione_puntuale - quantile*sd_residui
   
   
-  # Calcolo interi a partire dal secondo punto
   valori_fuori_intervallo = 0
   storia_crescita_valori_fuori_int[1] = 0
   
@@ -687,7 +686,7 @@ evaluate_intervals <- function(modello, alpha) {
     storia_crescita_valori_fuori_int = storia_crescita_valori_fuori_int
   ))
 }
-
+# metrica per vedere quanto il modello riesce a descrivere i dati che ha ricevuto in input
 
 ## vediamo se la funzione fa quello che ci aspetteremmo
 
@@ -784,6 +783,54 @@ cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori interval
 ## ???? forse ha senso andare a rivedere cosa avevamo fatto nell'esercitazione dei dugonghi... avevamo creato delle bande di previsione per un modello lineare anche lì 
 
 
+
+
+evaluate_tomorrow_interval = function(modello, alpha, tomorrow_test) {
+  
+  # modello: oggetto lm AR(1)
+  # alpha: livello di significatività (es. 0.05)
+  # tomorrow_test: vettore con il valore vero osservato domani (dato di test)
+  
+  # Previsione puntuale e residui
+  residui = modello$residuals
+  
+  # Calcolo una stima della deviazione standard e della media dei residui:
+  sd_residui = sd(residui)
+  mean_residui = mean(residui) 
+  
+  # Determinazione del valore critico per un intervallo di confidenza di livello 1-alpha (siamo sotto l'assunzione (forte) valutata prima di normalità dei residui)
+  quantile = qnorm(1 - alpha/2, mean_residui, sd_residui) 
+  
+  # Previsione puntuale per domani:
+  previsione_puntuale = model.frame(modello)[nobs(modello),1] * modello$coefficients[2] + modello$coefficients[1]
+                        # ultimo datovisto dal modello 
+  
+  # Pre-allocazione
+  limite_superiore =  rep(NA, 1)
+  limite_inferiore = rep(NA, 1)
+
+  # Calcoliamo l'intervallo di previsione 
+  limite_superiore = previsione_puntuale + quantile*sd_residui
+  limite_inferiore = previsione_puntuale - quantile*sd_residui
+  
+  ampiezza_int = 2*quantile*sd_residui
+  
+  
+  fuori_intervallo = 0
+
+  # verifico se l'osservazione corrente è fuori intervallo
+  if( tomorrow_test < limite_inferiore | tomorrow_test > limite_superiore)
+    fuori_intervallo = 1
+  
+  return(list(
+    fuori_intervallo,
+    ampiezza_int
+    ))
+}
+# metrica per vedere quanto è buono l'intervallo di PREVISIONE costruito per il primo valore non visto
+
+
+
 ######################################
 ## PRIMO MODELLO - dimensione train ##
 ######################################
@@ -801,11 +848,103 @@ cat(sprintf("Alpha teorico: %.2f, Percentuale osservata di valori fuori interval
 # definisco il numero di finestre che campionerò (ovvero il numero di modelli che fitterò)
 num_windows = 1000
 
+## 1000 è sufficiente? si! rimando alla parte di analisi sugli intervalli di previsione (poco sotto) per un'intuizione sulla sufficienza del numero di modelli scelto
 
 
-## dimensione train = 100:
+## dimensione train = 10, dimensione test = 1:
 
-finestre_100 = random_windows(serie, 100, 0, num_windows)
+finestre_10 = random_windows(serie, 10, 1, num_windows)
+# campiono diverse finestre di train
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+results_10 = vector("list", num_windows)
+test_fuori_int_10 = 0
+vec_percentuale_test_fuori_int_10 = rep(NA, num_windows)
+ampiezza_int_10 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_10[[i]]$train  
+  test  = finestre_10[[i]]$test  
+  
+  valori      = train[-1]          
+  predittori  = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
+  
+  ampiezza_int_10[i] = esito_tomorrow_test[[2]]
+  test_fuori_int_10 = test_fuori_int_10 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_10[i] = test_fuori_int_10/i
+  
+  results_10[[i]] = list(
+    summary                   = summary(mod),
+    residuals                 = residuals(mod),
+    fitted.values             = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+  )
+}
+
+percentuale_test_fuori_int_10 = test_fuori_int_10/num_windows
+ampiezza_media_int_10 = mean(ampiezza_int_10)
+
+
+# esempio di accesso ai dati salvati nella lista:
+results_10[[9]]$summary
+results_10[[7]]$residuals
+results_10[[1]]$fitted.values
+results_10[[4]]$percentuale_valori_fuori_int
+
+
+
+## dimensione train = 30, dimensione test = 1:
+
+finestre_30 = random_windows(serie, 30, 1, num_windows)
+# campiono diverse finestre di train
+
+# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
+results_30 = vector("list", num_windows)
+test_fuori_int_30 = 0
+vec_percentuale_test_fuori_int_30 = rep(NA, num_windows)
+ampiezza_int_30 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  train = finestre_30[[i]]$train  
+  test  = finestre_30[[i]]$test  
+  
+  valori      = train[-1]          
+  predittori  = train[-length(train)]
+  
+  mod = lm(valori ~ predittori)
+  
+  risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
+  
+  ampiezza_int_30[i] =  esito_tomorrow_test[[2]]
+  test_fuori_int_30 = test_fuori_int_30 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_30[i] = test_fuori_int_30/i
+  
+  results_30[[i]] = list(
+    summary                   = summary(mod),
+    residuals                 = residuals(mod),
+    fitted.values             = fitted.values(mod),
+    percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
+  )
+}
+
+percentuale_test_fuori_int_30 = test_fuori_int_30/num_windows
+ampiezza_media_int_30 = mean(ampiezza_int_30)
+
+
+
+## dimensione train = 100, dimensione test = 1:
+
+finestre_100 = random_windows(serie, 100, 1, num_windows)
 # campiono diverse finestre di train
 
 ## ???? e se le finestre non le prendessi in modo randomico? 
@@ -813,10 +952,14 @@ finestre_100 = random_windows(serie, 100, 0, num_windows)
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
 
 results_100 = vector("list", num_windows)
+test_fuori_int_100 = 0
+vec_percentuale_test_fuori_int_100 = rep(NA, num_windows)
+ampiezza_int_100 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
   
-  train = finestre_100[[i]]$train   
+  train = finestre_100[[i]]$train  
+  test = finestre_100[[i]]$test  
   
   valori = train[-1]          
   predittori = train[-length(train)]
@@ -824,6 +967,12 @@ for(i in 1:num_windows) {
   mod = lm(valori ~ predittori)
   
   risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
+  
+  ampiezza_int_100[i] = esito_tomorrow_test[[2]]
+  test_fuori_int_100 = test_fuori_int_100 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_100[i] = test_fuori_int_100/i
   
   # Salvo summary, residui e fitted.values
   results_100[[i]] = list(
@@ -834,115 +983,169 @@ for(i in 1:num_windows) {
   )
 }
 
-# esempio di accesso ai dati salvati nella lista:
-results_100[[10]]$summary
-results_100[[7]]$residuals
-results_100[[1]]$fitted.values
-results_100[[41]]$percentuale_valori_fuori_int
+percentuale_test_fuori_int_100 = test_fuori_int_100/num_windows
+ampiezza_media_int_100 = mean(ampiezza_int_100)
 
 
 
 
-## dimensione train = 500:
+## dimensione train = 500, dimensione test = 1:
 
-finestre_500 = random_windows(serie, 500, 0, num_windows)
+finestre_500 = random_windows(serie, 500, 1, num_windows)
 # campiono diverse finestre di train
 
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
-
 results_500 = vector("list", num_windows)
+test_fuori_int_500 = 0
+vec_percentuale_test_fuori_int_500 = rep(NA, num_windows)
+ampiezza_int_500 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
   
-  train = finestre_500[[i]]$train   
+  train = finestre_500[[i]]$train  
+  test  = finestre_500[[i]]$test  
   
-  valori = train[-1]          
-  predittori = train[-length(train)]
+  valori      = train[-1]          
+  predittori  = train[-length(train)]
   
   mod = lm(valori ~ predittori)
   
   risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
   
-  # Salvo summary, residui e fitted.values
+  ampiezza_int_500[i] = esito_tomorrow_test[[2]]
+  test_fuori_int_500 = test_fuori_int_500 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_500[i] = test_fuori_int_500/i
+  
   results_500[[i]] = list(
-    summary       = summary(mod),
-    residuals     = residuals(mod),
-    fitted.values = fitted.values(mod),
+    summary                   = summary(mod),
+    residuals                 = residuals(mod),
+    fitted.values             = fitted.values(mod),
     percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
   )
 }
 
+percentuale_test_fuori_int_500 = test_fuori_int_500/num_windows
+ampiezza_media_int_500 = mean(ampiezza_int_500)
 
 
 
-## dimensione train = 1000:
 
-finestre_1000 = random_windows(serie, 1000, 0, num_windows)
+## dimensione train = 1000, dimensione test = 1:
+
+finestre_1000 = random_windows(serie, 1000, 1, num_windows)
 # campiono diverse finestre di train
 
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
 
+## Modello con finestre di dimensione 1000
 results_1000 = vector("list", num_windows)
+test_fuori_int_1000 = 0
+vec_percentuale_test_fuori_int_1000 = rep(NA, num_windows)
+ampiezza_int_1000 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
   
-  train = finestre_1000[[i]]$train   
+  train = finestre_1000[[i]]$train  
+  test  = finestre_1000[[i]]$test  
   
-  valori = train[-1]          
-  predittori = train[-length(train)]
+  valori      = train[-1]          
+  predittori  = train[-length(train)]
   
   mod = lm(valori ~ predittori)
   
   risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
   
-  # Salvo summary, residui e fitted.values
+  ampiezza_int_1000[i] = esito_tomorrow_test[[2]]
+  test_fuori_int_1000 = test_fuori_int_1000 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_1000[i] = test_fuori_int_1000/i
+  
   results_1000[[i]] = list(
-    summary       = summary(mod),
-    residuals     = residuals(mod),
-    fitted.values = fitted.values(mod),
+    summary                   = summary(mod),
+    residuals                 = residuals(mod),
+    fitted.values             = fitted.values(mod),
     percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
-    
-  )
+    )
 }
 
+percentuale_test_fuori_int_1000 = test_fuori_int_1000/num_windows
+ampiezza_media_int_1000 = mean(ampiezza_int_1000)
 
 
-## dimensione train = 3000:
 
-finestre_3000 = random_windows(serie, 3000, 0, num_windows)
-# campiono diverse finestre di train
+## dimensione train = 3000, dimensione test = 1:
+
+finestre_3000 = sliding_windows(serie, 3000, 1, 1)
+# di fatto qua il numero di diverse finestre possibili è nrow(serie)-3000 < 1000 --> non ha senso un campionamento randomico, le considero tutte una sola volta sfruttando un approccio scorrevole
 
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
-
 results_3000 = vector("list", num_windows)
+test_fuori_int_3000 = 0
+vec_percentuale_test_fuori_int_3000 = rep(NA, length(finestre_3000))
+ampiezza_int_3000 = rep(NA, length(finestre_3000))
 
-for(i in 1:num_windows) {
+for(i in 1:length(finestre_3000)) {
   
-  train = finestre_3000[[i]]$train   
+  train = finestre_3000[[i]]$train  
+  test  = finestre_3000[[i]]$test  
   
-  valori = train[-1]          
-  predittori = train[-length(train)]
+  valori      = train[-1]          
+  predittori  = train[-length(train)]
   
   mod = lm(valori ~ predittori)
   
   risultati_intervalli = evaluate_intervals(mod, alpha)
+  esito_tomorrow_test = evaluate_tomorrow_interval(mod, alpha, test)
   
-  # Salvo summary, residui e fitted.values
+  ampiezza_int_3000[i] = esito_tomorrow_test[[2]]
+  test_fuori_int_3000 = test_fuori_int_3000 + esito_tomorrow_test[[1]]
+  
+  vec_percentuale_test_fuori_int_3000[i] = test_fuori_int_3000/i
+  
   results_3000[[i]] = list(
-    summary       = summary(mod),
-    residuals     = residuals(mod),
-    fitted.values = fitted.values(mod),
+    summary                   = summary(mod),
+    residuals                 = residuals(mod),
+    fitted.values             = fitted.values(mod),
     percentuale_valori_fuori_int = risultati_intervalli$percentuale_valori_fuori_int
-
   )
 }
 
+percentuale_test_fuori_int_3000 = test_fuori_int_3000/length(finestre_3000)
+ampiezza_media_int_3000 = mean(ampiezza_int_3000)
+
+
+
+##### confrontiamo la capacità dei vari modelli di DESCRIVERE i dati che hanno usato per creare il modello:
 
 # confronto i valori di beta1, R^2 ed errore std restituiti dai modelli di diverse dimensioni:
 
-metrics_100 <- lapply(results_100, function(res) {
+metrics_10 = lapply(results_10, function(res) {
   s <- res$summary
   data.frame(
+    beta0                   = s$coefficients[1],
+    beta1                   = s$coefficients["predittori", "Estimate"],
+    R2                      = s$adj.r.squared,
+    residual_se             = s$sigma
+  )
+}) %>% bind_rows()
+
+metrics_30 = lapply(results_30, function(res) {
+  s <- res$summary
+  data.frame(
+    beta0                   = s$coefficients[1],
+    beta1                   = s$coefficients["predittori", "Estimate"],
+    R2                      = s$adj.r.squared,
+    residual_se             = s$sigma
+  )
+}) %>% bind_rows()
+
+metrics_100 = lapply(results_100, function(res) {
+  s <- res$summary
+  data.frame(
+    beta0                   = s$coefficients[1],
     beta1                   = s$coefficients["predittori", "Estimate"],
     R2                      = s$adj.r.squared,
     residual_se             = s$sigma
@@ -951,21 +1154,24 @@ metrics_100 <- lapply(results_100, function(res) {
 
 metrics_500 = lapply(results_500, function(res) {
   s     = res$summary
-  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+  data.frame(beta0 = s$coefficients[1],
+             beta1 = s$coefficients["predittori", "Estimate"],
              R2    = s$adj.r.squared,
              residual_se = s$sigma)
 }) %>% bind_rows()
 
 metrics_1000 = lapply(results_1000, function(res) {
   s     = res$summary
-  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+  data.frame(beta0 = s$coefficients[1],
+             beta1 = s$coefficients["predittori", "Estimate"],
              R2    = s$adj.r.squared,
              residual_se = s$sigma)
 }) %>% bind_rows()
 
 metrics_3000 = lapply(results_3000, function(res) {
   s     = res$summary
-  data.frame(beta1 = s$coefficients["predittori", "Estimate"],
+  data.frame(beta0 = s$coefficients[1],
+             beta1 = s$coefficients["predittori", "Estimate"],
              R2    = s$adj.r.squared,
              residual_se = s$sigma)
 }) %>% bind_rows()
@@ -979,7 +1185,7 @@ make_hist <- function(vec, colore, titolo) {
     geom_histogram(bins = 15, fill = colore, color = "white") +
     geom_vline(xintercept = mean_val, linetype = "dashed", size = 1, color = colore) +
     annotate("text", x = mean_val, y = Inf, label = sprintf("%.3f", mean_val),
-             vjust =  2, color = colore, size = 3) +
+             vjust =  2, color = 1, size = 3) +
     labs(title = titolo) +
     theme_minimal() +
     theme(
@@ -992,10 +1198,10 @@ make_hist <- function(vec, colore, titolo) {
 
 
 
-
-
 # valori del residual standard error:
 
+residual_se_hist_10  = make_hist(metrics_10$residual_se,  "purple", "Residual Standard Error (100)")
+residual_se_hist_30  = make_hist(metrics_30$residual_se,  "orange", "Residual Standard Error (100)")
 residual_se_hist_100  = make_hist(metrics_100$residual_se,  "pink", "Residual Standard Error (100)")
 residual_se_hist_500  = make_hist(metrics_500$residual_se,  "lightgreen", "Residual Standard Error (500)")
 residual_se_hist_1000  = make_hist(metrics_1000$residual_se,  "steelblue", "Residual Standard Error (1000)")
@@ -1004,16 +1210,43 @@ residual_se_hist_3000  = make_hist(metrics_3000$residual_se,  "salmon", "Residua
 
 x11()
 grid.arrange(
+  residual_se_hist_10,
+  residual_se_hist_30,
   residual_se_hist_100, 
   residual_se_hist_500, 
   residual_se_hist_1000, 
   residual_se_hist_3000,
-  ncol = 2, nrow = 2
+  ncol = 3, nrow = 2
 )
 
 
-# valori di beta1:
 
+# valori di beta0:
+beta0_values_hist_10  = make_hist(metrics_10$beta0,  "purple", "Distribuzione di β0 (10)")
+beta0_values_hist_30  = make_hist(metrics_30$beta0,  "orange", "Distribuzione di β0 (30)")
+beta0_values_hist_100  = make_hist(metrics_100$beta0,  "pink", "Distribuzione di β0 (100)")
+beta0_values_hist_500  = make_hist(metrics_500$beta0,  "lightgreen", "Distribuzione di β0 (500)")
+beta0_values_hist_1000  = make_hist(metrics_1000$beta0,  "steelblue", "Distribuzione di β0 (1000)")
+beta0_values_hist_3000  = make_hist(metrics_3000$beta0,  "salmon", "Distribuzione di β0 (3000)")
+
+
+x11()
+grid.arrange(
+  beta0_values_hist_10,
+  beta0_values_hist_30,
+  beta0_values_hist_100,
+  beta0_values_hist_500,
+  beta0_values_hist_1000,
+  beta0_values_hist_3000,
+  ncol = 3, nrow = 2
+)
+
+
+
+
+# valori di beta1:
+beta1_values_hist_10  = make_hist(metrics_10$beta1,  "purple", "Distribuzione di β₁ (10)")
+beta1_values_hist_30  = make_hist(metrics_30$beta1,  "orange", "Distribuzione di β₁ (30)")
 beta1_values_hist_100  = make_hist(metrics_100$beta1,  "pink", "Distribuzione di β₁ (100)")
 beta1_values_hist_500  = make_hist(metrics_500$beta1,  "lightgreen", "Distribuzione di β₁ (500)")
 beta1_values_hist_1000  = make_hist(metrics_1000$beta1,  "steelblue", "Distribuzione di β₁ (1000)")
@@ -1022,36 +1255,43 @@ beta1_values_hist_3000  = make_hist(metrics_3000$beta1,  "salmon", "Distribuzion
 
 x11()
 grid.arrange(
+  beta1_values_hist_10,
+  beta1_values_hist_30,
   beta1_values_hist_100,
   beta1_values_hist_500,
   beta1_values_hist_1000,
   beta1_values_hist_3000,
-  ncol = 2, nrow = 2
+  ncol = 3, nrow = 2
 )
-
-
 
 
 # valori R^2 aggiustato:
 
-R2_values_hist_100  = make_hist(metrics_100$R2,  "pink", "Distribuzione di Adjusted R²₁ (100)")
-R2_values_hist_500  = make_hist(metrics_500$R2,  "lightgreen", "Distribuzione di Adjusted R²₁ (500)")
-R2_values_hist_1000  = make_hist(metrics_1000$R2,  "steelblue", "Distribuzione di Adjusted R²₁ (1000)")
-R2_values_hist_3000  = make_hist(metrics_3000$R2,  "salmon", "Distribuzione di Adjusted R²₁ (3000)")
+R2_values_hist_10  = make_hist(metrics_10$R2,  "purple", "Distribuzione di Adjusted R² (10)")
+R2_values_hist_30  = make_hist(metrics_30$R2,  "orange", "Distribuzione di Adjusted R² (30)")
+R2_values_hist_100  = make_hist(metrics_100$R2,  "pink", "Distribuzione di Adjusted R² (100)")
+R2_values_hist_500  = make_hist(metrics_500$R2,  "lightgreen", "Distribuzione di Adjusted R² (500)")
+R2_values_hist_1000  = make_hist(metrics_1000$R2,  "steelblue", "Distribuzione di Adjusted R² (1000)")
+R2_values_hist_3000  = make_hist(metrics_3000$R2,  "salmon", "Distribuzione di Adjusted R² (3000)")
 
 x11()
 grid.arrange(
+  R2_values_hist_10,
+  R2_values_hist_30,
   R2_values_hist_100,
   R2_values_hist_500,
   R2_values_hist_1000,
   R2_values_hist_3000,
-  ncol = 2, nrow = 2
+  ncol = 3, nrow = 2
 )
 
 
 # in sostanza vediamo come il valore medio di ciascun parametro differisca di poco cambiando la dimensione
 # del train, la varianza come ci si può aspettare diminuisce al cresceredella dimensione del train
 # unico parametro che migliora significativamente al crescere della dimensione è R^2
+
+# con poche osservazini nel train i modelli sono molto variabili (coeff prendono valori anche molto diversi),
+# al crescere del numero di osservazioni su cui il modello è costruito la variabilità dei parametri diminuisce drasticamente
 
 ## importante notare come Residual Standard Error (ovvero la deviazione std dei residui) sia pressoché invariata nei tre modelli --> l'ampiezza degli intervalli è grossomodo invariata, 
 ## eventuali migliori percentuali di coverage da parte di qualche modello non saranno dovute ad un aumento dell'ampiezza dell'intervallo ma saranno legate al fatto cheil modello riuscirà effettivamente a spoegare meglio i dati! 
@@ -1098,9 +1338,9 @@ mean_fuori_int_1000 = mean(fuori_int_1000)
 
 
 
-fuori_int_3000 = rep(NA, num_windows)
+fuori_int_3000 = rep(NA, length(finestre_3000))
 
-for(i in 1:num_windows) {
+for(i in 1:length(finestre_3000)) {
   
   fuori_int_3000[i] = results_3000[[i]]$percentuale_valori_fuori_int
   
@@ -1126,6 +1366,69 @@ grid.arrange(hist_fuori_int_100,
 ## anche questa metrica conferma che un modello con più osservazioni performa meglio: il miglio AR(1) usa quindi tutti i dati del dataset per stimare i coeff
 ## N.B: stiamo ancora valutando la caapcità del modello di descrivere i dati che ha usato per stimare i propri coefficienti,
 ##      tra poco vedremo invece quale è migliore per fare previsione sul prossimo giorno 
+
+
+
+
+##### analizziamo ora la capacità dei vari modelli di fornire un buon INTERVALLO DI PREVISIONE per il primo valore non osservato che segue quelli usati per costruire il modello:
+
+# i vari valori di training set
+dims = c(10, 30, 100, 500, 1000, 3000)
+
+# estraggo i vettori percentuali e ampiezze medie
+percentuali <- sapply(dims, function(d) {
+  varname <- paste0("percentuale_test_fuori_int_", d)
+  get(varname)
+})
+
+ampiezze <- sapply(dims, function(d) {
+  varname <- paste0("ampiezza_media_int_", d)
+  get(varname)
+})
+
+# costruisco il data.frame
+tabella <- data.frame(
+  dimensione = dims,
+  percentuale_test_fuori_int = percentuali,
+  ampiezza_media_int         = ampiezze
+)
+
+print(tabella)
+
+
+## Con finestre di training molto piccole (10 o 30 punti) oltre il 70% delle reali osservazioni di “domani” cade fuori dall’intervallo calcolato.
+## Man mano che aumentiamo la finestra fino a 100–500 giorni, la copertura migliora: il punto “migliore” si ottiene intorno a 500, dove “solo” il 59% resta fuori.
+## Viceversa, con finestre troppo ampie (3000 dati) torniamo a una copertura scadente (~76% fuori), probabilmente perché dati troppo vecchi rendono il modello meno reattivo ai cambi di volatilità recenti.
+## Anche il miglior risultato è molto distante dal nominale 95% (idealmente solo il 5% fuori), il che suggerisce che un modello lineare puro con errore omoschedastico non basta
+
+
+## ci possiamo fidare di questi dati? forse usare 1000 modelli non è sufficiente per trovare un valore che rappresenti bene 
+## il vero valore medio di dati di test contenunte nell'intervallo di previsione, vediamo:
+
+x11()
+par(mfrow = c(3, 2),     # 3 righe × 2 colonne
+    mar    = c(4,4,2,1)) # margini un po' più stretti
+
+for (d in dims) {
+  # recupero il vettore e la media corrispondenti
+  vec_name  <- paste0("vec_percentuale_test_fuori_int_", d)
+  mean_name <- paste0("percentuale_test_fuori_int_",    d)
+  vec        <- get(vec_name)
+  mn         <- get(mean_name)
+  
+  # disegno
+  plot(vec,
+       type  = "l",
+       main  = paste("", d),
+       xlab  = "Finestra",
+       ylab  = "Pct fuori intervallo")
+  abline(h = mn,      # linea orizzontale al valore medio
+         col = "red",
+         lty = 2)
+}
+
+
+# 1000 sembra essere un numero di modelli sufficiente.
 
 
 ##########################
