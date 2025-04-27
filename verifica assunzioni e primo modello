@@ -595,6 +595,8 @@ x11()
 acf(residui, main = "Autocorrelazione dei Residui") 
 # residui scorrelati, bene
 
+graphics.off()
+
 # Test di Breusch-Pagan per eteroscedasticità:
 bptest(primo_modello)  # P-value bassissimo --> rifiuto H0, residui eteroschedastici
                        # è quello che dicevamo prima, la volatilità del mercato è variabile, questo
@@ -827,13 +829,13 @@ evaluate_tomorrow_interval = function(modello, alpha, tomorrow_test) {
     ampiezza_int
     ))
 }
-# metrica per vedere quanto è buono l'intervallo di PREVISIONE costruito per il primo valore non visto
+# metrica per vedere quanto è buono l'intervallo di previsione costruito per il primo valore NON visto
 
 
 
-######################################
-## PRIMO MODELLO - dimensione train ##
-######################################
+###############################################################################
+## PRIMO MODELLO - dimensione train (capacità di descrivere i dati ricevuti) ##
+###############################################################################
 
 
 ## Il modello AR(1) costruito sopra usa tutte le osservazioni disponibili per stimare i parametri ma questo potrebbe peggiorare le sue performance:
@@ -859,7 +861,7 @@ finestre_10 = random_windows(serie, 10, 1, num_windows)
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
 results_10 = vector("list", num_windows)
 test_fuori_int_10 = 0
-vec_percentuale_test_fuori_int_10 = rep(NA, num_windows)
+storia_media_percentuale_test_fuori_int_10 = rep(NA, num_windows)
 ampiezza_int_10 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
@@ -878,7 +880,7 @@ for(i in 1:num_windows) {
   ampiezza_int_10[i] = esito_tomorrow_test[[2]]
   test_fuori_int_10 = test_fuori_int_10 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_10[i] = test_fuori_int_10/i
+  storia_media_percentuale_test_fuori_int_10[i] = test_fuori_int_10/i
   
   results_10[[i]] = list(
     summary                   = summary(mod),
@@ -908,7 +910,7 @@ finestre_30 = random_windows(serie, 30, 1, num_windows)
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
 results_30 = vector("list", num_windows)
 test_fuori_int_30 = 0
-vec_percentuale_test_fuori_int_30 = rep(NA, num_windows)
+storia_media_percentuale_test_fuori_int_30 = rep(NA, num_windows)
 ampiezza_int_30 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
@@ -927,7 +929,7 @@ for(i in 1:num_windows) {
   ampiezza_int_30[i] =  esito_tomorrow_test[[2]]
   test_fuori_int_30 = test_fuori_int_30 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_30[i] = test_fuori_int_30/i
+  storia_media_percentuale_test_fuori_int_30[i] = test_fuori_int_30/i
   
   results_30[[i]] = list(
     summary                   = summary(mod),
@@ -949,11 +951,9 @@ finestre_100 = random_windows(serie, 100, 1, num_windows)
 
 ## ???? e se le finestre non le prendessi in modo randomico? 
 
-# fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
-
 results_100 = vector("list", num_windows)
 test_fuori_int_100 = 0
-vec_percentuale_test_fuori_int_100 = rep(NA, num_windows)
+storia_media_percentuale_test_fuori_int_100 = rep(NA, num_windows)
 ampiezza_int_100 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
@@ -972,7 +972,7 @@ for(i in 1:num_windows) {
   ampiezza_int_100[i] = esito_tomorrow_test[[2]]
   test_fuori_int_100 = test_fuori_int_100 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_100[i] = test_fuori_int_100/i
+  storia_media_percentuale_test_fuori_int_100[i] = test_fuori_int_100/i
   
   # Salvo summary, residui e fitted.values
   results_100[[i]] = list(
@@ -997,7 +997,7 @@ finestre_500 = random_windows(serie, 500, 1, num_windows)
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
 results_500 = vector("list", num_windows)
 test_fuori_int_500 = 0
-vec_percentuale_test_fuori_int_500 = rep(NA, num_windows)
+storia_media_percentuale_test_fuori_int_500 = rep(NA, num_windows)
 ampiezza_int_500 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
@@ -1016,7 +1016,7 @@ for(i in 1:num_windows) {
   ampiezza_int_500[i] = esito_tomorrow_test[[2]]
   test_fuori_int_500 = test_fuori_int_500 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_500[i] = test_fuori_int_500/i
+  storia_media_percentuale_test_fuori_int_500[i] = test_fuori_int_500/i
   
   results_500[[i]] = list(
     summary                   = summary(mod),
@@ -1042,7 +1042,7 @@ finestre_1000 = random_windows(serie, 1000, 1, num_windows)
 ## Modello con finestre di dimensione 1000
 results_1000 = vector("list", num_windows)
 test_fuori_int_1000 = 0
-vec_percentuale_test_fuori_int_1000 = rep(NA, num_windows)
+storia_media_percentuale_test_fuori_int_1000 = rep(NA, num_windows)
 ampiezza_int_1000 = rep(NA, num_windows)
 
 for(i in 1:num_windows) {
@@ -1061,7 +1061,7 @@ for(i in 1:num_windows) {
   ampiezza_int_1000[i] = esito_tomorrow_test[[2]]
   test_fuori_int_1000 = test_fuori_int_1000 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_1000[i] = test_fuori_int_1000/i
+  storia_media_percentuale_test_fuori_int_1000[i] = test_fuori_int_1000/i
   
   results_1000[[i]] = list(
     summary                   = summary(mod),
@@ -1082,9 +1082,9 @@ finestre_3000 = sliding_windows(serie, 3000, 1, 1)
 # di fatto qua il numero di diverse finestre possibili è nrow(serie)-3000 < 1000 --> non ha senso un campionamento randomico, le considero tutte una sola volta sfruttando un approccio scorrevole
 
 # fitto un modello per ciascuna finestra (di ciascun modello salvo summary, residui e fitted values):
-results_3000 = vector("list", num_windows)
+results_3000 = vector("list", length(finestre_3000))
 test_fuori_int_3000 = 0
-vec_percentuale_test_fuori_int_3000 = rep(NA, length(finestre_3000))
+storia_media_percentuale_test_fuori_int_3000 = rep(NA, length(finestre_3000))
 ampiezza_int_3000 = rep(NA, length(finestre_3000))
 
 for(i in 1:length(finestre_3000)) {
@@ -1103,7 +1103,7 @@ for(i in 1:length(finestre_3000)) {
   ampiezza_int_3000[i] = esito_tomorrow_test[[2]]
   test_fuori_int_3000 = test_fuori_int_3000 + esito_tomorrow_test[[1]]
   
-  vec_percentuale_test_fuori_int_3000[i] = test_fuori_int_3000/i
+  storia_media_percentuale_test_fuori_int_3000[i] = test_fuori_int_3000/i
   
   results_3000[[i]] = list(
     summary                   = summary(mod),
@@ -1118,9 +1118,9 @@ ampiezza_media_int_3000 = mean(ampiezza_int_3000)
 
 
 
-##### confrontiamo la capacità dei vari modelli di DESCRIVERE i dati che hanno usato per creare il modello:
+##### confrontiamo la capacità dei vari modelli di DESCRIVERE i dati che hanno usato per creare il modello stesso:
 
-# confronto i valori di beta1, R^2 ed errore std restituiti dai modelli di diverse dimensioni:
+# confronto i valori di beta0, beta1, R^2 ed errore std restituiti dai modelli di diverse dimensioni:
 
 metrics_10 = lapply(results_10, function(res) {
   s <- res$summary
@@ -1179,7 +1179,7 @@ metrics_3000 = lapply(results_3000, function(res) {
 
 
 # definisco una funzione che userò sotto per fare tutti i grafici del caso (senza era un caos):
-make_hist <- function(vec, colore, titolo) {
+make_hist = function(vec, colore, titolo) {
   mean_val <- mean(vec)
   ggplot(data.frame(x = vec), aes(x)) +
     geom_histogram(bins = 15, fill = colore, color = "white") +
@@ -1287,19 +1287,44 @@ grid.arrange(
 
 
 # in sostanza vediamo come il valore medio di ciascun parametro differisca di poco cambiando la dimensione
-# del train, la varianza come ci si può aspettare diminuisce al cresceredella dimensione del train
+# del train, la varianza come ci si può aspettare diminuisce al crescere della dimensione del train
 # unico parametro che migliora significativamente al crescere della dimensione è R^2
 
-# con poche osservazini nel train i modelli sono molto variabili (coeff prendono valori anche molto diversi),
+# con poche osservazioni nel train i modelli sono molto variabili (coeff prendono valori anche molto diversi),
 # al crescere del numero di osservazioni su cui il modello è costruito la variabilità dei parametri diminuisce drasticamente
 
 ## importante notare come Residual Standard Error (ovvero la deviazione std dei residui) sia pressoché invariata nei tre modelli --> l'ampiezza degli intervalli è grossomodo invariata, 
-## eventuali migliori percentuali di coverage da parte di qualche modello non saranno dovute ad un aumento dell'ampiezza dell'intervallo ma saranno legate al fatto cheil modello riuscirà effettivamente a spoegare meglio i dati! 
+## eventuali migliori percentuali di coverage da parte di qualche modello non saranno dovute ad un aumento dell'ampiezza dell'intervallo ma saranno legate al fatto che il modello riuscirà effettivamente a spoegare meglio i dati! 
+## occhio: in realtà è la media che rimane abbastanza simile, la sua distribuzione cambia parecchio in realtà
+##         (il modello con 500 dati ha tante volte valori di errore alti (spesso i suoi intervalli sono molto ampi))
+
 
 # da questa prima analisi sembra che il modello migliore per descrivere i dati potrebbe essere quello più numeroso
 
 # il nostro interesse fino ad ora non è però tanto stato sulla bontà della previsione puntuale quanto invece
 # sulla bontà degli intervalli di previsione  creati, vediamo dunque se ci sono differenze significative tra i modelli di diversa dimensione
+
+
+fuori_int_10 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_10[i] = results_10[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_10 = mean(fuori_int_10)
+
+
+fuori_int_30 = rep(NA, num_windows)
+
+for(i in 1:num_windows) {
+  
+  fuori_int_30[i] = results_30[[i]]$percentuale_valori_fuori_int
+  
+}
+
+mean_fuori_int_30= mean(fuori_int_30)
 
 
 fuori_int_100 = rep(NA, num_windows)
@@ -1351,46 +1376,104 @@ mean_fuori_int_3000 = mean(fuori_int_3000)
 
 # grafichiamo i risultati
 
+hist_fuori_int_10 = make_hist(fuori_int_10,  "purple",       "Errore fuori-I.P. (10)")
+hist_fuori_int_30 = make_hist(fuori_int_30,  "orange",       "Errore fuori-I.P. (30)")
 hist_fuori_int_100 = make_hist(fuori_int_100,  "pink",       "Errore fuori-I.P. (100)")
 hist_fuori_int_500 = make_hist(fuori_int_500,  "lightgreen", "Errore fuori-I.P. (500)")
 hist_fuori_int_1000 = make_hist(fuori_int_1000, "steelblue",  "Errore fuori-I.P. (1000)")
 hist_fuori_int_3000 = make_hist(fuori_int_3000, "salmon",     "Errore fuori-I.P. (3000)")
 
 x11()
-grid.arrange(hist_fuori_int_100,
+grid.arrange(hist_fuori_int_10,
+             hist_fuori_int_30,
+             hist_fuori_int_100,
              hist_fuori_int_500, 
              hist_fuori_int_1000, 
-             hist_fuori_int_3000, ncol = 2, nrow = 2)
+             hist_fuori_int_3000, ncol = 3, nrow = 2)
 
 
-## anche questa metrica conferma che un modello con più osservazioni performa meglio: il miglio AR(1) usa quindi tutti i dati del dataset per stimare i coeff
-## N.B: stiamo ancora valutando la caapcità del modello di descrivere i dati che ha usato per stimare i propri coefficienti,
+## anche questa metrica conferma che un modello con più osservazioni performa meglio: il miglior AR(1) usa quindi tutti i dati del dataset per stimare i coeff
+## N.B: stiamo ancora valutando la capacità del modello di descrivere i dati che ha usato per stimare i propri coefficienti,
 ##      tra poco vedremo invece quale è migliore per fare previsione sul prossimo giorno 
 
 
 
+## ci possiamo fidare di questi dati? forse usare 1000 modelli non è sufficiente per trovare un valore che rappresenti bene 
+## il vero valore medio di intervalli che contegono il valore osservato, vediamo:
+
+
+# restituiscono un vettore con il valore di percentuale_valori_fuori_int per ciascun elemento 
+vec_percentuali_fuori_int_10 = sapply(results_10, `[[`, "percentuale_valori_fuori_int")
+vec_percentuali_fuori_int_30 = sapply(results_30, `[[`, "percentuale_valori_fuori_int")
+vec_percentuali_fuori_int_100 = sapply(results_100, `[[`, "percentuale_valori_fuori_int")
+vec_percentuali_fuori_int_500 = sapply(results_500, `[[`, "percentuale_valori_fuori_int")
+vec_percentuali_fuori_int_1000 = sapply(results_1000, `[[`, "percentuale_valori_fuori_int")
+vec_percentuali_fuori_int_3000 = sapply(results_3000, `[[`, "percentuale_valori_fuori_int")
+
+# creo vettori con la storia del valore della media salvata sopra:
+
+seq = seq(1, num_windows, 1)
+storia_media_percentuali_fuori_int_10 = cumsum(vec_percentuali_fuori_int_10) / seq
+storia_media_percentuali_fuori_int_30 = cumsum(vec_percentuali_fuori_int_30) / seq
+storia_media_percentuali_fuori_int_100 = cumsum(vec_percentuali_fuori_int_100) / seq
+storia_media_percentuali_fuori_int_500 = cumsum(vec_percentuali_fuori_int_500) / seq
+storia_media_percentuali_fuori_int_1000 = cumsum(vec_percentuali_fuori_int_1000) / seq
+
+seqq = seq(1, length(finestre_3000), 1)
+storia_media_percentuali_fuori_int_3000 = cumsum(vec_percentuali_fuori_int_3000) / seqq
+
+
+x11()
+par(mfrow = c(3, 2))
+plot(storia_media_percentuali_fuori_int_10, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_10), b = 0, col = 2)
+plot(storia_media_percentuali_fuori_int_30, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_30), b = 0, col = 2)
+plot(storia_media_percentuali_fuori_int_100, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_100), b = 0, col = 2)
+plot(storia_media_percentuali_fuori_int_500, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_500), b = 0, col = 2)
+plot(storia_media_percentuali_fuori_int_1000, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_1000), b = 0, col = 2)
+plot(storia_media_percentuali_fuori_int_3000, type = 'l')
+abline(a = mean(vec_percentuali_fuori_int_3000), b = 0, col = 2)
+
+
+
+# 1000 sembra essere un numero di modelli sufficiente.
+
+graphics.off()
+
+
+#######################################################################
+## PRIMO MODELLO - dimensione train (bontà intervalli di previsione) ##
+#######################################################################
+
 
 ##### analizziamo ora la capacità dei vari modelli di fornire un buon INTERVALLO DI PREVISIONE per il primo valore non osservato che segue quelli usati per costruire il modello:
 
-# i vari valori di training set
-dims = c(10, 30, 100, 500, 1000, 3000)
 
-# estraggo i vettori percentuali e ampiezze medie
-percentuali <- sapply(dims, function(d) {
-  varname <- paste0("percentuale_test_fuori_int_", d)
-  get(varname)
-})
+# ora per la prima volta valutiamo la bontà del modello quando deve predirre osservazioni mai viste, fino ad ora quella che abbiamo valutato è stata solamente la capacità descrittiva del modello
 
-ampiezze <- sapply(dims, function(d) {
-  varname <- paste0("ampiezza_media_int_", d)
-  get(varname)
-})
+# qual è la dimensione migliore del train per avere un modello che predice bene? coincide con quanto trovato prima? perché?
+# va considerata anche l'ampiezza dell'intervallo! (intervalli ampissima faranno bene ma che senso hanno...)
+
 
 # costruisco il data.frame
-tabella <- data.frame(
-  dimensione = dims,
-  percentuale_test_fuori_int = percentuali,
-  ampiezza_media_int         = ampiezze
+tabella = data.frame(
+  dimensione = c(10,30,100,500,1000,3000),
+  percentuale_test_fuori_int = c(storia_media_percentuale_test_fuori_int_10[1000],
+                                 storia_media_percentuale_test_fuori_int_30[1000],
+                                 storia_media_percentuale_test_fuori_int_100[1000],
+                                 storia_media_percentuale_test_fuori_int_500[1000],
+                                 storia_media_percentuale_test_fuori_int_1000[1000],
+                                 storia_media_percentuale_test_fuori_int_3000[length(finestre_3000)]),
+  ampiezza_media_int         = c(mean(ampiezza_int_10),
+                                 mean(ampiezza_int_30),
+                                 mean(ampiezza_int_100),
+                                 mean(ampiezza_int_500),
+                                 mean(ampiezza_int_1000),
+                                 mean(ampiezza_int_3000))
 )
 
 print(tabella)
@@ -1403,63 +1486,124 @@ print(tabella)
 
 
 ## ci possiamo fidare di questi dati? forse usare 1000 modelli non è sufficiente per trovare un valore che rappresenti bene 
-## il vero valore medio di dati di test contenunte nell'intervallo di previsione, vediamo:
+## il vero valore medio di dati di test contenute nell'intervallo di previsione, vediamo:
+
 
 x11()
-par(mfrow = c(3, 2),     # 3 righe × 2 colonne
-    mar    = c(4,4,2,1)) # margini un po' più stretti
+par(mfrow = c(3, 2))
+plot(storia_media_percentuale_test_fuori_int_10, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_10[1000], b = 0, col = 2)
+plot(storia_media_percentuale_test_fuori_int_30, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_30[1000], b = 0, col = 2)
+plot(storia_media_percentuale_test_fuori_int_100, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_100[1000], b = 0, col = 2)
+plot(storia_media_percentuale_test_fuori_int_500, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_500[1000], b = 0, col = 2)
+plot(storia_media_percentuale_test_fuori_int_1000, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_1000[1000], b = 0, col = 2)
+plot(storia_media_percentuale_test_fuori_int_3000, type = 'l')
+abline(a =storia_media_percentuale_test_fuori_int_3000[length(finestre_3000)], b = 0, col = 2)
 
-for (d in dims) {
-  # recupero il vettore e la media corrispondenti
-  vec_name  <- paste0("vec_percentuale_test_fuori_int_", d)
-  mean_name <- paste0("percentuale_test_fuori_int_",    d)
-  vec        <- get(vec_name)
-  mn         <- get(mean_name)
-  
-  # disegno
-  plot(vec,
-       type  = "l",
-       main  = paste("", d),
-       xlab  = "Finestra",
-       ylab  = "Pct fuori intervallo")
-  abline(h = mn,      # linea orizzontale al valore medio
-         col = "red",
-         lty = 2)
-}
+
+# 1000 sembra essere un numero di modelli sufficiente.
+
+graphics.off()
 
 
 # 1000 sembra essere un numero di modelli sufficiente.
 
 
-##########################
-## PRIMO MODELLO - test ##
-##########################
 
-# ora per la prima volta valutiamo la bontà del modello quando deve predirre osservazioni mai viste, fino ad ora quella che abbiamo valutato è stata solamente la capacità descrittiva del modello
+## NOTA IMPORTANTE: ##
 
+# stiamo cercando di fare scelte ottime per portare il modello AR(1) presentato al massimo delle sue potenzialità.
+# vogliamo mostrare come nonostante tutto il lavoro fatte per rendere questo modello il migliore possibile la sua 
+# performance non sia migliore di quello di un modello estremamente semplice e naif. 
+# vogliamo così mostrare i limiti (ovvi) del modello AR(1)
+
+# qua stiamo però scegliendo la dimensione dei train che ha portato a un risultato migliore in media:
+# in molti casi la scelta ottima della dimensione del train per prevedere domani è diversa dalla scelta che abbiamo
+# individuato essere quella miglioire in media ---> per creare il miglior AR(1) possibile dovremmo poter prendere una decisione ottimale per ciascuna decisione
+# (dimensione dalla finestra variabile e decisa dinamicamente quindi), non individuare la dimensione che fa meglio in media e usarla oper ogni previsione
+
+
+
+
+
+## ????????
 # vogliamo vedere quanto peggiori la predizione andando avanti (non più solo il giorno immediatamente successivo ma anche dopodomani, dopodopodomani etc...)
 # posso graficare come si alza l'errore e come dovrebbero cambiare le bande di previsione (allargarsi oltremodo)
 
 
-# qual è la dimensione migliore del train per avere un modello che predice bene? coincide con quanto trovato prima? perché?
-# va considerata anche l'ampiezza dell'intervallo! (intervalli ampissima faranno bene ma che senso hanno...)
+
+########################################
+## autoregressivi di ordine superiore ##
+########################################
+
+# modelli autoregressivi di ordine superiore migliorerebbero le performance del modello?
+# AR(2), AR(3), ... , AR(n), sono predittori significativi anche i giorni che precedono l'ultimo? no!
 
 
 
-############################################################
-## MODELLO 1 bis - modifiche di progetto e considerazioni ##
-############################################################
+# AR(2) : 
 
-# valutiamo (e giustifichiamo) l'impatto di scelte di progetto quali:
-# - dimensione del train set (quanto indietro mi serve guardare? comew cambiano le cose?) 
-# - dimensione del test (quanto peggiorano le mie previsioni andando in là? ampiezza dell'intervallo e percentuale misurata di correttezza dello stesso)
-# - AR(2), AR(3), ... , AR(n), sono predittori significativi anche i giorni che precedono l'ultimo? no!
-# - e se, sorteggiato a caso un oggi, volessi fare previsioni su domani usando un AR(1), posso scrivere una funzione che mi aiuti a capire quanto mi conviene guardare indietro?
+lag2 = serie[1:(nrow(serie)-2), 2]    
+
+mod_AR2 = lm(serie[3:(nrow(serie)), 2]  ~ valore_precedente[-1] + lag2)
+
+summary(mod_AR2)
+
+
+# AR(3) :
+
+lag3 = serie[1:(nrow(serie)-3), 2]  
+
+mod_AR3 = lm(serie[4:nrow(serie), 2] ~ lag3 + lag2[-1] + valore_precedente[3:length(valore_precedente)])
+
+summary(mod_AR3)
+
+
+# AR(4) :
+
+lag4 = serie[1:(nrow(serie)-4), 2]  
+
+mod_AR4 = lm(serie[5:nrow(serie), 2] ~ lag4 + lag3[-1] + lag2[3:length(lag2)] + valore_precedente[4:length(valore_precedente)])
+
+summary(mod_AR4)
+
+
+
+## dunque:
+
+# L’AR(2) non migliora l’AR(1) (il secondo ritardo non è significativo)
+
+# L’AR(3) introduce un lieve beneficio (riduzione dell’errore), ma il guadagno è veramente marginale
+
+# Con l’AR(4) non c’è ulteriore miglioramento (lag 4 è irrilevante)
+
+# un semplice AR(1) è quindi già quasi ottimale, questo poteva già essere dedotto dalla pacf: il fatto che si annulli dopo lag 1  
+# dice proprio che l’inclusione di termini con lag superiore a 1 serve solo a introdurre rumore e complessità inutili.
 
 ######################################
 ## confronto AR(1) con modello naif ##
 ######################################
 
+rendimento_medio = mean(incrementi)
+
+sigma_hat_rendimenti = sd(incrementi)
+
+previsioni_puntuali_modello_naif = rep(NA, nrow(serie))
+
+for(i in 2:nrow(serie)) {
+  
+  previsioni_puntuali_modello_naif[i] = serie[i-1,2] + rnorm(1, rendimento_medio, sigma_hat_rendimenti)
+  
+}
+
+
+x11()
+plot(serie[1:50,2], type = 'l')
+lines(previsioni_puntuali_modello_naif[1:50], col = 2)
 
 
 ################################################
@@ -1476,67 +1620,3 @@ for (d in dims) {
 
 
 ## creiamo questi modelli per due diversi portafogli: uno con titoli tra loro poco correlati e uno con titoli molto correlati (aziende tech americane ad es)
-
-
-####################
-### lavoro mamma ###
-####################
-
-rm(list=ls())
-
-## lavoro mamma
-
-vec = unlist(`goccia.(ita)`)
-
-freq = rep(NA,length(vec))
-count_met = 0
-
-
-
-for(i in 1:length(vec)) 
-  {
-  
-  if(vec[i] == "M") 
-    { 
-     count_met = count_met + 1
-  }
-  
-  freq[i] = count_met / i  
-}
-
-x11()
-plot(freq, type = "l")
-abline(h = 0.59, col = 2, lty = 3)
-abline(h = 0.60, col = 4, lty = 3)
-abline(h = 0.58, col = 4, lty = 3)
-
-
-
-
-x11()
-# Limitiamo il grafico ai primi 300 dati
-plot(freq[1:300], type = "l", col = "black", lwd = 1, 
-     xlab = "Numero di osservazioni", ylab = "Frequenza Empirica", 
-     main = "Convergenza della Frequenza Empirica")
-
-# Aggiungiamo linee orizzontali per i valori di interesse
-abline(h = freq[300], col = "red", lty = 3, lwd = 2)
-abline(h = freq[300]+0.025, col = "green", lty = 3, lwd = 2)
-abline(h = freq[300]-0.025, col = "green", lty = 3, lwd = 2)
-
-# Aggiungiamo una legenda
-legend("topright", legend = c("Frequenza Empirica", "Frequenza stimata", "Intervallo superiore", "Intervallo inferiore"),
-       col = c("black", "red", "green", "green"), lty = c(1, 3, 3, 3), lwd = c(2, 2, 2, 2))
-
-
-
-
-graphics.off()
-
-
-
-
-
-
-
-
